@@ -43,6 +43,11 @@ fi
 
 cd "$SRC"
 
+# The upstream shell scripts can arrive without the executable bit (depending on
+# how the source tree was checked out / mounted). Restore it before we invoke
+# them, or the first `./build-psp-cldc.sh` fails with exit 126 (Permission denied).
+find "$SRC" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+
 # --- 1) phoneME libraries ----------------------------------------------------
 echo ">> [1/2] building phoneME libraries (javacall/pcsl/cldc/midp)"
 ./build-psp-cldc.sh -J "$JDK_DIR"
