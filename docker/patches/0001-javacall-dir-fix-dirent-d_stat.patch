@@ -1,0 +1,102 @@
+diff --git a/javacall/implementation/psp_mips/common/dir.c b/javacall/implementation/psp_mips/common/dir.c
+index 3ef6d7ae..91caec3a 100644
+--- a/javacall/implementation/psp_mips/common/dir.c
++++ b/javacall/implementation/psp_mips/common/dir.c
+@@ -33,6 +33,7 @@ extern "C" {
+ #include "stdlib.h"
+ #include "string.h"
+ #include "dirent.h"
++#include <sys/stat.h>
+ 
+ //#define DEBUG_JAVACALL_DIR 1
+ 
+@@ -44,6 +45,14 @@ typedef struct {
+     SceIoDirent* dirent;
+ } slot;
+ 
++/* Wraps the POSIX DIR* together with the directory path, so
++ * javacall_dir_get_next() can stat() each entry to detect directories.
++ * Modern newlib's struct dirent has no PSP-specific d_stat member. */
++typedef struct {
++    DIR* dir;
++    char path[JAVACALL_MAX_FILE_NAME_LENGTH + 1];
++} javacall_dir_slot;
++
+ /**
+  * returns a handle to a file list. This handle can be used in
+  * subsequent calls to javacall_dir_get_next() to iterate through
+@@ -92,7 +101,20 @@ javacall_handle javacall_dir_open(const javacall_utf16* path, int pathLen) {
+    javacall_print("\n");
+ #endif    
+ 
+-    DIR* handle = opendir(szPath);
++    DIR* dir = opendir(szPath);
++    if (dir == NULL) {
++        return NULL;
++    }
++
++    javacall_dir_slot* handle =
++        (javacall_dir_slot*)malloc(sizeof(javacall_dir_slot));
++    if (handle == NULL) {
++        closedir(dir);
++        return NULL;
++    }
++    handle->dir = dir;
++    strncpy(handle->path, szPath, JAVACALL_MAX_FILE_NAME_LENGTH);
++    handle->path[JAVACALL_MAX_FILE_NAME_LENGTH] = 0;
+ 
+ #ifdef DEBUG_JAVACALL_DIR
+     javacall_printf("return %x\n", handle);
+@@ -112,7 +134,9 @@ void javacall_dir_close(javacall_handle handle) {
+     free(((slot*)handle)->dirent);
+     free(handle);
+ #endif
+-    closedir((DIR*)handle);
++    javacall_dir_slot* h = (javacall_dir_slot*)handle;
++    closedir(h->dir);
++    free(h);
+ }
+     
+ /**
+@@ -162,17 +186,37 @@ javacall_utf16* javacall_dir_get_next(javacall_handle handle, int* /*OUT*/ outFi
+     }
+ #endif
+     static javacall_utf16 name[JAVACALL_MAX_FILE_NAME_LENGTH+1];
+-    
+-    struct dirent* d = readdir((DIR*)handle);
++
++    javacall_dir_slot* h = (javacall_dir_slot*)handle;
++    struct dirent* d = readdir(h->dir);
+     if (d != NULL) {
+         int len = strlen(d->d_name);
++        int is_dir = 0;
++        char full[2 * JAVACALL_MAX_FILE_NAME_LENGTH + 2];
++        struct stat st;
++
++        /* Reconstruct "path/name" and stat() it to detect a directory --
++         * modern newlib's struct dirent dropped the PSP d_stat member the
++         * original code used. Directories are reported with a trailing '/'. */
++        strcpy(full, h->path);
++        {
++            int plen = strlen(full);
++            if (plen == 0 || full[plen-1] != '/') {
++                full[plen] = '/';
++                full[plen+1] = 0;
++            }
++        }
++        strcat(full, d->d_name);
++        if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) {
++            is_dir = 1;
++        }
+ #ifdef DEBUG_JAVACALL_DIR
+-        javacall_printf("javacall_dir_get_next: %s, len=%d, dir=%d\n", d->d_name, len, (d->d_stat.st_attr & FIO_SO_IFDIR)?1:0);
++        javacall_printf("javacall_dir_get_next: %s, len=%d, dir=%d\n", d->d_name, len, is_dir);
+ #endif
+     	if (len >= JAVACALL_MAX_FILE_NAME_LENGTH - 1) {
+     	    return NULL;
+     	} else {
+-    	    if(d->d_stat.st_attr & FIO_SO_IFDIR) {
++    	    if (is_dir) {
+     	         name[len] = (javacall_utf16)'/';
+     	    	  *outFilenameLength = len+1;
+     	    	  name[len+1] = 0;
