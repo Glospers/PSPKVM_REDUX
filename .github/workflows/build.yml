@@ -1,0 +1,44 @@
+name: build-eboot
+
+# Phase 0 deliverable: a CI-buildable pipeline that reproduces the PSPKVM
+# EBOOT.PBP inside the pinned Docker environment.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Pinned pspkvm source commit (vadosnaprimer/pspkvm @ master, 2026-07-23).
+  PSPKVM_REPO: https://github.com/vadosnaprimer/pspkvm.git
+  PSPKVM_SHA: 15b93ccb82048d4ae12510ef65666bc13c79c252
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout pipeline (Dockerfile, build.sh, patches)
+        uses: actions/checkout@v4
+
+      - name: Fetch pinned pspkvm source
+        run: |
+          git clone --filter=blob:none "$PSPKVM_REPO" src
+          git -C src checkout "$PSPKVM_SHA"
+
+      - name: Build environment image
+        run: docker build -t pspkvm-build ./docker
+
+      - name: Build EBOOT.PBP
+        run: |
+          docker run --rm \
+            -v "$PWD/src:/work/pspkvm" \
+            -v "$PWD/docker/patches:/work/patches:ro" \
+            pspkvm-build
+
+      - name: Upload EBOOT.PBP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pspkvm-eboot
+          path: src/psp/EBOOT.PBP
+          if-no-files-found: warn

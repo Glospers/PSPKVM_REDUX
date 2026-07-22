@@ -1,0 +1,28 @@
+# --- Upstream source, not vendored -------------------------------------------
+# Fetched fresh at the pinned commits (see docs/INVESTIGATION.md and the CI
+# workflow). Kept out of the repo so history stays small and the GPLv2/EPL
+# source boundary stays clean.
+/pspkvm/
+/m3gcore/
+
+# --- Local working notes (not part of the published project) -----------------
+/.claude/
+/CLAUDE.md
+/HANDOFF.md
+/FINDINGS.md
+
+# --- Build artifacts ---------------------------------------------------------
+*.o
+*.a
+*.so
+*.elf
+EBOOT.PBP
+PARAM.SFO
+**/output/
+/build/
+/dist/
+
+# --- OS / editor -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp

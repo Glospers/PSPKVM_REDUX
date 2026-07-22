@@ -1,0 +1,13 @@
+# Let Git normalize line endings by default.
+* text=auto
+
+# Shell scripts and the Dockerfile run inside the Linux build container and MUST
+# keep LF endings — otherwise a CRLF checkout on Windows breaks them at runtime.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.mk        text eol=lf
+Makefile    text eol=lf
+
+# Patches are byte-sensitive; never let Git touch their endings.
+*.patch     -text
+*.diff      -text
