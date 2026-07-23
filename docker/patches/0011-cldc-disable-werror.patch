@@ -1,0 +1,17 @@
+diff --git a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+index 12602abe..76bca3af 100644
+--- a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
++++ b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+@@ -36,6 +36,12 @@ export ENABLE_INTERPRETER_GENERATOR__BY := javacall_psp_gcc.cfg
+ export ENABLE_COMPILER                  := false
+ export ENABLE_COMPILER__BY              := javacall_psp_gcc.cfg
+ 
++# The 2010 C++ VM sources trip many warnings under psp-g++ 15 (e.g. C++11
++# literal-suffix: "..."MACRO"..."). They are non-fatal warnings, not real bugs,
++# so don't promote them to errors (this toggle gates the build's -Werror).
++export ENABLE_COMPILATION_WARNINGS      := true
++export ENABLE_COMPILATION_WARNINGS__BY  := javacall_psp_gcc.cfg
++
+ host_os   = linux
+ host_arch = i386
+ os_family = linux
