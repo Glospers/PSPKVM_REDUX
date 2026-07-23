@@ -1,0 +1,15 @@
+diff --git a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+index 5218214e..12602abe 100644
+--- a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
++++ b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+@@ -42,7 +42,9 @@ os_family = linux
+ compiler  = gcc
+ arch      = c
+ 
+-MakeDepsMain_javacall = WinGammaPlatform
++# Use the Unix makedep generator (produces the incls/ include database + a gcc
++# Makefile) instead of the Windows one, which the original Cygwin build used.
++MakeDepsMain_javacall = UnixPlatform
+ MakeDepsOpts_javacall = -resolveVpath true
+ 
+ ifndef MERGE_SOURCE_FILES
