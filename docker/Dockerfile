@@ -164,7 +164,11 @@ RUN dpkg --add-architecture i386 \
 RUN mkdir -p /opt/xalan \
  && curl -fSL -o /opt/xalan/xalan.jar      https://repo1.maven.org/maven2/xalan/xalan/2.7.3/xalan-2.7.3.jar \
  && curl -fSL -o /opt/xalan/serializer.jar https://repo1.maven.org/maven2/xalan/serializer/2.7.3/serializer-2.7.3.jar
-ENV JAVA_TOOL_OPTIONS="-Djava.endorsed.dirs=/opt/xalan -Djavax.xml.transform.TransformerFactory=org.apache.xalan.processor.TransformerFactoryImpl"
+# useLegacyMergeSort: several phoneME build tools (e.g. the l10n generator) sort
+# with comparators that violate the strict contract; JDK 1.4.2's merge sort
+# tolerated this, but JDK 7+ TimSort throws "Comparison method violates its
+# general contract!", which truncated the generated zh-CN localized-strings C.
+ENV JAVA_TOOL_OPTIONS="-Djava.endorsed.dirs=/opt/xalan -Djavax.xml.transform.TransformerFactory=org.apache.xalan.processor.TransformerFactoryImpl -Djava.util.Arrays.useLegacyMergeSort=true"
 
 COPY build.sh /usr/local/bin/pspkvm-build
 RUN chmod +x /usr/local/bin/pspkvm-build
