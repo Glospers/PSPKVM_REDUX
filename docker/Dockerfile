@@ -133,16 +133,23 @@ RUN (psp-pacman -Sy --noconfirm || true) \
 #     (build/share/bin/linux_i386/preverify), selected by the host_os=linux patch;
 #   - the generator tools romgen/loopgen cast target pointers to `int`, so they
 #     must be compiled 32-bit or they fail on a 64-bit host (pointer truncation).
-# Install multilib + i386 runtime libs, and wrap NATIVE gcc/g++ (-m32) and the
-# assembler `as` (--32, for the generated i386 CPU stubs). This affects only
-# native tools, used in this build solely for the host generators — the PSP
-# target is built with psp-gcc/psp-as and is untouched.
+# Install multilib + i386 runtime libs, and wrap the NATIVE tools:
+#   - gcc/g++: add -m32 always; add -lm on LINK steps only (not -c/-S/-E). The
+#     generators link FloatSupport_c (fmod/fmodf) but the makefile's libm logic
+#     doesn't reach the generated romgen sub-make, so force it at the driver.
+#   - as: --32, for the generated i386 CPU stubs.
+# This affects only native tools, used here solely for the host generators — the
+# PSP target is built with psp-gcc/psp-as and is untouched.
 RUN dpkg --add-architecture i386 \
  && apt-get update \
  && apt-get install -y --no-install-recommends g++-multilib zlib1g:i386 \
  && rm -rf /var/lib/apt/lists/* \
  && for t in gcc g++; do \
-      printf '#!/bin/sh\nexec /usr/bin/%s -m32 "$@" -Wno-error\n' "$t" > /usr/local/bin/$t; \
+      printf '%s\n' \
+        '#!/bin/sh' \
+        'for a in "$@"; do case "$a" in -c|-S|-E) exec /usr/bin/'"$t"' -m32 "$@" -Wno-error;; esac; done' \
+        'exec /usr/bin/'"$t"' -m32 "$@" -Wno-error -lm' \
+        > /usr/local/bin/$t; \
       chmod +x /usr/local/bin/$t; \
     done \
  && printf '#!/bin/sh\nexec /usr/bin/as --32 "$@"\n' > /usr/local/bin/as \
