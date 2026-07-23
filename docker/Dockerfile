@@ -128,14 +128,22 @@ ENV PSPDEV=/usr/local/pspdev \
 RUN (psp-pacman -Sy --noconfirm || true) \
  && (psp-pacman -S  --noconfirm sdl sdl_mixer libvorbis libogg freetype || true)
 
-# The CLDC build runs a prebuilt preverifier shipped in the source tree. The only
-# Linux build available there is a 32-bit x86 ELF (build/share/bin/linux_i386/
-# preverify), selected by the host_os=linux/host_arch=i386 source patch. Provide
-# i386 runtime libs so it executes on this amd64 image.
+# The cldc host stage is 32-bit-host code:
+#   - the prebuilt preverifier shipped in the tree is a 32-bit x86 ELF
+#     (build/share/bin/linux_i386/preverify), selected by the host_os=linux patch;
+#   - the generator tools romgen/loopgen cast target pointers to `int`, so they
+#     must be compiled 32-bit or they fail on a 64-bit host (pointer truncation).
+# Install multilib + i386 runtime libs, and wrap NATIVE gcc/g++ to add -m32. This
+# affects only native gcc/g++, which in this build is used solely for the host
+# generators — the PSP target is built with psp-gcc and is untouched.
 RUN dpkg --add-architecture i386 \
  && apt-get update \
- && apt-get install -y --no-install-recommends libc6:i386 zlib1g:i386 \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends g++-multilib zlib1g:i386 \
+ && rm -rf /var/lib/apt/lists/* \
+ && for t in gcc g++; do \
+      printf '#!/bin/sh\nexec /usr/bin/%s -m32 "$@"\n' "$t" > /usr/local/bin/$t; \
+      chmod +x /usr/local/bin/$t; \
+    done
 
 COPY build.sh /usr/local/bin/pspkvm-build
 RUN chmod +x /usr/local/bin/pspkvm-build
