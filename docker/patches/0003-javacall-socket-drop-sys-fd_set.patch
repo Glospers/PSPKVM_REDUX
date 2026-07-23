@@ -1,0 +1,13 @@
+diff --git a/javacall/implementation/psp_mips/midp/socket.c b/javacall/implementation/psp_mips/midp/socket.c
+index bf7eeded..6e10143c 100644
+--- a/javacall/implementation/psp_mips/midp/socket.c
++++ b/javacall/implementation/psp_mips/midp/socket.c
+@@ -34,7 +34,7 @@ extern "C" {
+ #include <netdb.h>
+ #include <sys/types.h>
+ #include <sys/socket.h>
+-#include <sys/fd_set.h>
++/* modern newlib dropped <sys/fd_set.h>; fd_set comes from <sys/select.h> below */
+ #include <sys/select.h>
+ #include <sys/time.h>
+ #include <netinet/in.h>
