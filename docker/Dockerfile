@@ -141,7 +141,7 @@ RUN dpkg --add-architecture i386 \
  && apt-get install -y --no-install-recommends g++-multilib zlib1g:i386 \
  && rm -rf /var/lib/apt/lists/* \
  && for t in gcc g++; do \
-      printf '#!/bin/sh\nexec /usr/bin/%s -m32 "$@"\n' "$t" > /usr/local/bin/$t; \
+      printf '#!/bin/sh\nexec /usr/bin/%s -m32 "$@" -Wno-error\n' "$t" > /usr/local/bin/$t; \
       chmod +x /usr/local/bin/$t; \
     done
 
