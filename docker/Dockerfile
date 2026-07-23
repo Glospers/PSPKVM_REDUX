@@ -111,7 +111,7 @@ RUN set -eu; cd /usr/local/pspdev/bin; \
     mv psp-gcc psp-gcc.real; \
     { \
       echo '#!/bin/sh'; \
-      echo 'exec /usr/local/pspdev/bin/psp-gcc.real -std=gnu17 "$@" -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=return-mismatch -Wno-error=declaration-missing-parameter-type'; \
+      echo 'exec /usr/local/pspdev/bin/psp-gcc.real -std=gnu17 -fgnu89-inline -Dstricmp=strcasecmp "$@" -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=return-mismatch -Wno-error=declaration-missing-parameter-type'; \
     } > psp-gcc; \
     chmod +x psp-gcc; \
     head -n2 psp-gcc
