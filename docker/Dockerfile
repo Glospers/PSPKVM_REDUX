@@ -155,6 +155,17 @@ RUN dpkg --add-architecture i386 \
  && printf '#!/bin/sh\nexec /usr/bin/as --32 "$@"\n' > /usr/local/bin/as \
  && chmod +x /usr/local/bin/as
 
+# Apache Xalan (interpretive XSLT). The phoneME configurator's merge.xsl uses an
+# xsl:key whose use= expression walks the parent axis, which JDK 8's built-in
+# XSLTC mishandles — key() returns empty and the MIDP constant merge aborts with
+# "key ... has no corresponding constant". Endorse Xalan so the build's
+# javax.xml.transform.TransformerFactory is the interpretive Apache one (the
+# behaviour the original JDK 1.4.2 build relied on).
+RUN mkdir -p /opt/xalan \
+ && curl -fSL -o /opt/xalan/xalan.jar      https://repo1.maven.org/maven2/xalan/xalan/2.7.3/xalan-2.7.3.jar \
+ && curl -fSL -o /opt/xalan/serializer.jar https://repo1.maven.org/maven2/xalan/serializer/2.7.3/serializer-2.7.3.jar
+ENV JAVA_TOOL_OPTIONS="-Djava.endorsed.dirs=/opt/xalan -Djavax.xml.transform.TransformerFactory=org.apache.xalan.processor.TransformerFactoryImpl"
+
 COPY build.sh /usr/local/bin/pspkvm-build
 RUN chmod +x /usr/local/bin/pspkvm-build
 
