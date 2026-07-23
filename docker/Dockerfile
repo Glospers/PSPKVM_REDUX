@@ -128,6 +128,15 @@ ENV PSPDEV=/usr/local/pspdev \
 RUN (psp-pacman -Sy --noconfirm || true) \
  && (psp-pacman -S  --noconfirm sdl sdl_mixer libvorbis libogg freetype || true)
 
+# The CLDC build runs a prebuilt preverifier shipped in the source tree. The only
+# Linux build available there is a 32-bit x86 ELF (build/share/bin/linux_i386/
+# preverify), selected by the host_os=linux/host_arch=i386 source patch. Provide
+# i386 runtime libs so it executes on this amd64 image.
+RUN dpkg --add-architecture i386 \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends libc6:i386 zlib1g:i386 \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY build.sh /usr/local/bin/pspkvm-build
 RUN chmod +x /usr/local/bin/pspkvm-build
 
