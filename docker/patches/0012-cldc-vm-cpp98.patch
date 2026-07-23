@@ -1,0 +1,16 @@
+diff --git a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+index 76bca3af..b6bd0e3b 100644
+--- a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
++++ b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+@@ -120,5 +120,11 @@ export ENABLE_PRODUCT_PRINT_STACK__BY = javacall_psp_gcc.cfg
+     JAVACALL_LIB_DIR=$(JAVACALL_OUTPUT_DIR)/lib
+ 
+     CPP_DEF_FLAGS += -I$(JAVACALL_INCLUDE_DIR) -DMIPS -G0 -DMIPS_JVM
++    # The 2007-era VM is C++98 code and collides with modern C++ rules under
++    # psp-g++ 15: string-literal + macro adjacency ("..."MACRO) is parsed as a
++    # (hard-error) user-defined literal in C++11, and word constants in the
++    # romized ROM image trip -Wnarrowing. Build it as pre-C++11, which is its
++    # actual dialect and resolves both.
++    CPP_DEF_FLAGS += -std=gnu++98 -Wno-narrowing
+     #LINK_FLAGS += `$(call fixcygpath_m, $(JAVACALL_LIB_DIR)/libjavacall$(BUILD_EXT_javacall).a)` 
+ endif
