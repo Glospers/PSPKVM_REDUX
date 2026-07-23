@@ -1,0 +1,13 @@
+diff --git a/cldc/src/vm/cpu/c/AsmStubs_i386.s b/cldc/src/vm/cpu/c/AsmStubs_i386.s
+index f316c86d..f32706c0 100644
+--- a/cldc/src/vm/cpu/c/AsmStubs_i386.s
++++ b/cldc/src/vm/cpu/c/AsmStubs_i386.s
+@@ -24,7 +24,7 @@
+ # information or have any questions.
+ #
+ 
+-.arch i486
++.arch i686
+ .text
+ .align 16
+ 
