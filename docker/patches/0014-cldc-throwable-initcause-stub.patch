@@ -1,0 +1,19 @@
+diff --git a/cldc/src/javaapi/cldc1.1/java/lang/Throwable.java b/cldc/src/javaapi/cldc1.1/java/lang/Throwable.java
+index fa5686d7..76a08ec7 100644
+--- a/cldc/src/javaapi/cldc1.1/java/lang/Throwable.java
++++ b/cldc/src/javaapi/cldc1.1/java/lang/Throwable.java
+@@ -175,4 +175,14 @@ public class Throwable {
+      * the stack frames for the current thread. 
+     */
+     private native void fillInStackTrace();
++
++    /**
++     * Added to satisfy the synthetic class$ helper that javac 5+ emits for
++     * class literals: it rethrows ClassNotFoundException via
++     * NoClassDefFoundError.initCause(). CLDC has no exception chaining, so this
++     * is a no-op that simply returns this Throwable.
++     */
++    public Throwable initCause(Throwable cause) {
++        return this;
++    }
+ }
