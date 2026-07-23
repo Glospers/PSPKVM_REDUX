@@ -1,0 +1,15 @@
+diff --git a/cldc/src/vm/os/linux/JVM_linux.cpp b/cldc/src/vm/os/linux/JVM_linux.cpp
+index 60a2fa10..1b99143c 100644
+--- a/cldc/src/vm/os/linux/JVM_linux.cpp
++++ b/cldc/src/vm/os/linux/JVM_linux.cpp
+@@ -66,3 +66,10 @@ extern "C" int JVM_Start2(const JvmPathChar *classpath,
+   }
+   return result;
+ }
++
++/* The win32/javacall OS layers define this (as an empty stub); the linux layer
++   omitted it, leaving JVM_SetLogChannel undefined when building the host tools
++   with host_os=linux. Mirror the win32 stub. */
++extern "C" void JVM_SetLogChannel(int channel) {
++  (void)channel;
++}

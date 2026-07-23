@@ -1,0 +1,18 @@
+diff --git a/cldc/build/share/jvm.make b/cldc/build/share/jvm.make
+index 13045064..7ef12627 100644
+--- a/cldc/build/share/jvm.make
++++ b/cldc/build/share/jvm.make
+@@ -1635,6 +1635,13 @@ ifeq ($(host_os)-$(IsRomGen), linux-true)
+ LINK_FLAGS             += -static
+ endif
+ 
++# FloatSupport_c (fmod/fmodf) is linked into the host generators even when the
++# C interpreter isn't enabled, so libm must be linked explicitly (modern glibc
++# no longer folds these into libc).
++ifeq ($(host_os), linux)
++LINK_FLAGS             += -lm
++endif
++
+ ifeq ($(PROFILING), true)
+ CPP_FLAGS              += -pg
+ LINK_FLAGS             += -pg
