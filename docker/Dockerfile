@@ -92,6 +92,23 @@ FROM base AS pspkvm-build
 COPY --from=toolchain /usr/local/pspdev /usr/local/pspdev
 COPY --from=jdk       /opt/jdk          /opt/jdk
 
+# --- Compiler shim: demote GCC-14 default-error C diagnostics to warnings ------
+# The 2010 phoneME/PSPKVM C sources predate GCC's tightening. GCC 14 promotes
+# these five diagnostics from warnings to hard errors *by default* (no -Werror
+# needed), and they recur across all four modules. The modules invoke the
+# compiler by different spellings (javacall uses bare `psp-gcc`; pcsl uses an
+# absolute `.../bin/psp-gcc` path), so editing per-module CFLAGS is fragile and
+# incomplete. Instead we wrap the real driver IN PLACE at its toolchain path,
+# which every caller resolves to. Demoted (not silenced) so they stay visible.
+RUN set -eu; cd /usr/local/pspdev/bin; \
+    mv psp-gcc psp-gcc.real; \
+    { \
+      echo '#!/bin/sh'; \
+      echo 'exec /usr/local/pspdev/bin/psp-gcc.real "$@" -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=return-mismatch'; \
+    } > psp-gcc; \
+    chmod +x psp-gcc; \
+    head -n2 psp-gcc
+
 ENV PSPDEV=/usr/local/pspdev \
     JAVA_HOME=/opt/jdk \
     JDK_DIR=/opt/jdk \
