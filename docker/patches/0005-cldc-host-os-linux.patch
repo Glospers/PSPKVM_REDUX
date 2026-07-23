@@ -1,0 +1,16 @@
+diff --git a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+index f71c17e0..5218214e 100644
+--- a/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
++++ b/cldc/build/javacall_psp_gcc/javacall_psp_gcc.cfg
+@@ -36,9 +36,9 @@ export ENABLE_INTERPRETER_GENERATOR__BY := javacall_psp_gcc.cfg
+ export ENABLE_COMPILER                  := false
+ export ENABLE_COMPILER__BY              := javacall_psp_gcc.cfg
+ 
+-host_os   = cygwin
++host_os   = linux
+ host_arch = i386
+-os_family = win32
++os_family = linux
+ compiler  = gcc
+ arch      = c
+ 
