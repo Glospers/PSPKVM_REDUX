@@ -1,0 +1,17 @@
+diff --git a/cldc/build/share/jvm.make b/cldc/build/share/jvm.make
+index 13045064..afdaca32 100644
+--- a/cldc/build/share/jvm.make
++++ b/cldc/build/share/jvm.make
+@@ -284,7 +284,11 @@ LIBMGR               = $(LIBMGR_$(compiler))
+ OBJ_SUFFIX_visCPP    = .obj
+ OBJ_SUFFIX_evc       = .obj
+ OBJ_SUFFIX_gcc       = .o
+-ifeq ($(host_os), cygwin)
++# MakeDeps emits object names with the .obj suffix, and the LIB_OBJS $(subst ...)
++# rules below match on .obj literally, so OBJ_SUFFIX must be .obj wherever those
++# are active: the original cygwin host, and our modern linux host build. A
++# mismatch mangles each subst-removed object (e.g. BSDSocket.obj -> "bj").
++ifneq ($(filter cygwin linux, $(host_os)),)
+ OBJ_SUFFIX_gcc       = .obj
+ endif
+ OBJ_SUFFIX           = $(OBJ_SUFFIX_$(compiler))
