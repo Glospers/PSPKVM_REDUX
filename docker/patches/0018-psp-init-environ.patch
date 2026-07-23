@@ -1,0 +1,18 @@
+diff --git a/psp/pspkvm.c b/psp/pspkvm.c
+index 573439c4..4e58e499 100644
+--- a/psp/pspkvm.c
++++ b/psp/pspkvm.c
+@@ -50,6 +50,13 @@ PSP_MAIN_THREAD_ATTR(0);
+ 
+ PSP_HEAP_SIZE_KB(-3048);
+ 
++/* Modern pspdev's __timezone_update() calls setenv("TZ", ...) during C-runtime
++   startup. In a PRX, environ is left uninitialized (garbage), so setenv writes
++   to a bad address and crashes before the VM ever runs. Provide a defined,
++   NULL environ so setenv allocates a fresh one instead of walking garbage.
++   (This .o always links, so it overrides libcglue's library definition.) */
++char **environ = NULL;
++
+ /* Define the main thread's attribute value (optional) */
+ //PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
+ 
