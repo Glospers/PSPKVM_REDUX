@@ -1,5 +1,5 @@
 diff --git a/midp/build/common/makefiles/Defs.gmk b/midp/build/common/makefiles/Defs.gmk
-index 30cc4831..a4941d95 100644
+index 30cc4831..f355bb76 100644
 --- a/midp/build/common/makefiles/Defs.gmk
 +++ b/midp/build/common/makefiles/Defs.gmk
 @@ -471,7 +471,7 @@ define compilefiles
@@ -7,7 +7,7 @@ index 30cc4831..a4941d95 100644
  			f2= ; \
  		fi ; \
 -		$(JAVAC_CMD) -g$(JAVAC_DEBUG) -d $(JAVAC_OUT_DIR) \
-+		$(JAVAC_CMD) -g$(JAVAC_DEBUG) -encoding ISO-8859-1 -d $(JAVAC_OUT_DIR) \
++		$(JAVAC_CMD) -g$(JAVAC_DEBUG) -encoding ISO-8859-1 -source 1.4 -target 1.4 -d $(JAVAC_OUT_DIR) \
  			-bootclasspath "$(BOOTCLASSPATH)" \
  			-classpath $(CLASSBINDIR) $$f1 $$f2 || exit 1; \
  		if test "$(TARGET_VM)" = "cldc_vm"; then \
