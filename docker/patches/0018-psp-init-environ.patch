@@ -1,17 +1,25 @@
 diff --git a/psp/pspkvm.c b/psp/pspkvm.c
-index 573439c4..4e58e499 100644
+index 573439c4..5924f188 100644
 --- a/psp/pspkvm.c
 +++ b/psp/pspkvm.c
-@@ -50,6 +50,13 @@ PSP_MAIN_THREAD_ATTR(0);
+@@ -50,6 +50,21 @@ PSP_MAIN_THREAD_ATTR(0);
  
  PSP_HEAP_SIZE_KB(-3048);
  
-+/* Modern pspdev's __timezone_update() calls setenv("TZ", ...) during C-runtime
-+   startup. In a PRX, environ is left uninitialized (garbage), so setenv writes
-+   to a bad address and crashes before the VM ever runs. Provide a defined,
-+   NULL environ so setenv allocates a fresh one instead of walking garbage.
-+   (This .o always links, so it overrides libcglue's library definition.) */
-+char **environ = NULL;
++/* Modern pspdev's C runtime calls __timezone_update() -> setenv("TZ", ...) during
++   startup, but in a PRX `environ` is (re)initialized to garbage, so newlib's
++   setenv writes to a bad address and crashes before the VM ever runs. (The 2010
++   toolchain the official EBOOT was built with did not do this.) PSPKVM does not
++   use POSIX environment variables — timezone comes from the PSP APIs via
++   javacall — so stub setenv/_setenv_r to no-ops. These live in pspkvm.o, which
++   always links, so they override newlib's library versions. */
++struct _reent;
++int _setenv_r(struct _reent *r, const char *name, const char *value, int rewrite) {
++    (void)r; (void)name; (void)value; (void)rewrite; return 0;
++}
++int setenv(const char *name, const char *value, int rewrite) {
++    (void)name; (void)value; (void)rewrite; return 0;
++}
 +
  /* Define the main thread's attribute value (optional) */
  //PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
