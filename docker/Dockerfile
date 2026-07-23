@@ -92,19 +92,26 @@ FROM base AS pspkvm-build
 COPY --from=toolchain /usr/local/pspdev /usr/local/pspdev
 COPY --from=jdk       /opt/jdk          /opt/jdk
 
-# --- Compiler shim: demote GCC-14 default-error C diagnostics to warnings ------
-# The 2010 phoneME/PSPKVM C sources predate GCC's tightening. GCC 14 promotes
-# these five diagnostics from warnings to hard errors *by default* (no -Werror
-# needed), and they recur across all four modules. The modules invoke the
-# compiler by different spellings (javacall uses bare `psp-gcc`; pcsl uses an
-# absolute `.../bin/psp-gcc` path), so editing per-module CFLAGS is fragile and
-# incomplete. Instead we wrap the real driver IN PLACE at its toolchain path,
-# which every caller resolves to. Demoted (not silenced) so they stay visible.
+# --- Compiler shim: fit the 2010 C sources to a modern (GCC 15) toolchain ------
+# Two eras collide here, and both fixes belong at the toolchain level because the
+# four build modules invoke the compiler by different spellings (javacall uses
+# bare `psp-gcc`; pcsl uses an absolute `.../bin/psp-gcc` path) — so per-module
+# CFLAGS edits are fragile and incomplete. We wrap the real driver IN PLACE at
+# its toolchain path, which every caller resolves to.
+#
+#  1. -std=gnu17 (PREPENDED, so any explicit per-file -std still wins): psp-gcc
+#     15 defaults to C23, where an empty `()` prototype means `(void)`. The 2010
+#     headers use K&R `()` = "unspecified args" and define the same functions
+#     WITH parameters (e.g. javacall_network_connect_state), which C23 reads as
+#     conflicting types. gnu17 restores the K&R meaning and fixes the whole class.
+#  2. -Wno-error=... (APPENDED, so they override any -Werror): GCC promotes these
+#     five diagnostics to hard errors by default; demote (not silence) them so the
+#     old code compiles while staying visible for later cleanup.
 RUN set -eu; cd /usr/local/pspdev/bin; \
     mv psp-gcc psp-gcc.real; \
     { \
       echo '#!/bin/sh'; \
-      echo 'exec /usr/local/pspdev/bin/psp-gcc.real "$@" -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=return-mismatch'; \
+      echo 'exec /usr/local/pspdev/bin/psp-gcc.real -std=gnu17 "$@" -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=return-mismatch'; \
     } > psp-gcc; \
     chmod +x psp-gcc; \
     head -n2 psp-gcc
