@@ -1,0 +1,21 @@
+diff --git a/cldc/src/vm/os/linux/OS_linux.cpp b/cldc/src/vm/os/linux/OS_linux.cpp
+index 7d21f810..2c6bf5c7 100644
+--- a/cldc/src/vm/os/linux/OS_linux.cpp
++++ b/cldc/src/vm/os/linux/OS_linux.cpp
+@@ -950,10 +950,14 @@ void Os::initialize() {
+   // results can be unpredictable if we'll modify stack in
+   // Java heap and VM will not know. We handle signals either when
+   // using SIGVTALRM, or when printing pss() in case of a crash.
++/* glibc 2.34+ makes MINSIGSTKSZ a runtime (sysconf) value rather than a
++   compile-time constant, so it can no longer size a static array. This is the
++   host generator tool's crash-time signal alt-stack; use a fixed, generously
++   sized buffer instead. */
+ # if defined(PRODUCT)
+-# define ALT_STACK_SIZE (MINSIGSTKSZ)
++# define ALT_STACK_SIZE (32768)
+ # else
+-# define ALT_STACK_SIZE (MINSIGSTKSZ + 2048)
++# define ALT_STACK_SIZE (32768 + 2048)
+ # endif
+ 
+   static char alt_stack_buf[ALT_STACK_SIZE];
