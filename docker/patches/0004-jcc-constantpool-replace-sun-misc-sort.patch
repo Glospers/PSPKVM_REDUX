@@ -1,0 +1,41 @@
+diff --git a/cldc/src/tools/jcc/components/ConstantPool.java b/cldc/src/tools/jcc/components/ConstantPool.java
+index 2f66cef5..3d220802 100644
+--- a/cldc/src/tools/jcc/components/ConstantPool.java
++++ b/cldc/src/tools/jcc/components/ConstantPool.java
+@@ -32,10 +32,11 @@ import java.util.Vector;
+ import java.util.Enumeration;
+ import java.io.IOException;
+ import java.io.PrintStream;
+-import sun.misc.Compare;
++import java.util.Comparator;
++import java.util.Arrays;
+ 
+-public 
+-class ConstantPool implements Compare {
++public
++class ConstantPool implements Comparator {
+ 
+     protected Hashtable	h;	// for "quick" lookup
+     protected Vector	t;	// for enumeration in order
+@@ -69,6 +70,12 @@ class ConstantPool implements Compare {
+         return -1;
+     }
+ 
++    /* Comparator adapter: sun.misc.Compare (JDK 1.4) was removed; delegate the
++       standard java.util.Comparator method to the original doCompare. */
++    public int compare( java.lang.Object o1, java.lang.Object o2) {
++        return doCompare(o1, o2);
++    }
++
+     public void doSort() {
+ 	int count = 0;
+ 	int nNew = 1;
+@@ -83,7 +90,7 @@ class ConstantPool implements Compare {
+ 
+ 	// Sorting the ConstantObject with descending reference
+ 	// count.	
+-	sun.misc.Sort.quicksort(arr, this);
++	java.util.Arrays.sort(arr, this);
+ 
+ 	t.removeAllElements();
+ 	t.addElement(null);
