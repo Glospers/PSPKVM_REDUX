@@ -13,7 +13,11 @@
 #      points the engine calls but never defines) and src/m3g_inflate.c (zlib
 #      decompression for the native .m3g loader) -- plus src/m3g_psp_loader.c,
 #      which owns the M3GInterface and drives the loader for both the KNI
-#      natives (jsr184/src/native) and the host test harness (test/).
+#      natives (jsr184/src/native) and the host test harness (test/), and
+#      src/m3g_psp_arena.c, the engine's private heap.  The engine must not
+#      allocate from the C heap on this platform: the Java object heap is a
+#      malloc'd block inside it, so engine blocks would sit against VM memory.
+#      Pass M3G_PSP_ARENA_KB=<n> to resize that heap.
 #
 #   3. src/stub/, a no-op OpenGL ES 1.1 + EGL backend.  m3gcore renders only
 #      through GL ES (the software path is #error'd out at
@@ -91,9 +95,17 @@ INCLUDES    := -I$(M3G_DIR)/inc -I$(M3GCORE_DIR)/inc -I$(M3GCORE_DIR)/src
 DEFINES     := -DM3G_TARGET_SYMBIAN \
                -Dm3gSymbianInflateBlock=m3gPspInflateBlock
 
+# Size of the engine's private heap (src/m3g_psp_arena.c).  Left unset the
+# source picks its own default; override on the command line to retune after
+# reading the peak= figure the KNI layer logs to ms0:/pspkvm_vm.log.
+ifneq ($(M3G_PSP_ARENA_KB),)
+DEFINES     += -DM3G_PSP_ARENA_KB=$(M3G_PSP_ARENA_KB)
+endif
+
 OBJS        := $(OBJDIR)/m3g_core.o \
                $(OBJDIR)/m3g_math_compat.o \
                $(OBJDIR)/m3g_inflate.o \
+               $(OBJDIR)/m3g_psp_arena.o \
                $(OBJDIR)/m3g_psp_loader.o \
                $(OBJDIR)/m3g_gl_stub.o \
                $(OBJDIR)/m3g_egl_stub.o \

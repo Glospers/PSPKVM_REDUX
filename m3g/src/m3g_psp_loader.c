@@ -28,23 +28,14 @@
 
 #include "M3G/m3g_psp.h"
 
-#include <stdlib.h>
+#include <stddef.h>     /* NULL only -- nothing here allocates from libc any
+                         * more; see the note on mallocFunc below */
 
 /*----------------------------------------------------------------------
  * The interface singleton
  *--------------------------------------------------------------------*/
 
 static M3GInterface s_interface = NULL;
-
-static void *m3gPspMalloc(M3Guint bytes)
-{
-    return malloc((size_t) bytes);
-}
-
-static void m3gPspFree(void *ptr)
-{
-    free(ptr);
-}
 
 M3GInterface m3gPspGetInterface(void)
 {
@@ -54,9 +45,16 @@ M3GInterface m3gPspGetInterface(void)
         /* Zero first: M3Gparams has nine members and only two of them are
          * mandatory (src/m3g_interface.c:1597-1604); the rest must be NULL,
          * not garbage, or m3gCreateInterface will happily install a stack
-         * address as the error callback. */
-        params.mallocFunc      = m3gPspMalloc;
-        params.freeFunc        = m3gPspFree;
+         * address as the error callback.
+         *
+         * mallocFunc/freeFunc deliberately do NOT go to libc.  See the note
+         * above the arena entry points in inc/M3G/m3g_psp.h: on this platform
+         * the C heap contains the Java object heap, so an engine block
+         * allocated from it sits against VM memory.  src/m3g_psp_arena.c is a
+         * separate static heap with guard bands, which both prevents that and
+         * detects it if it happens anyway. */
+        params.mallocFunc      = m3gPspArenaAlloc;
+        params.freeFunc        = m3gPspArenaFree;
         params.objAllocFunc    = NULL;
         params.objResolveFunc  = NULL;
         params.objFreeFunc     = NULL;
@@ -142,7 +140,12 @@ M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
         return M3G_PSP_ERR_UNSUPPORTED;
     }
 
-    roots = (M3GObject *) malloc((size_t) count * sizeof(M3GObject));
+    /* Out of the arena as well, not libc: this array is written by
+     * m3gGetLoadedObjects below and read by the KNI natives, so if the count
+     * and the fill ever disagreed the overrun would land in the Java heap.
+     * Inside the arena the block canary catches it instead. */
+    roots = (M3GObject *) m3gPspArenaAlloc(
+                (M3Guint) count * (M3Guint) sizeof(M3GObject));
     if (roots == NULL) {
         m3gDeleteObject((M3GObject) loader);
         return M3G_PSP_ERR_OUT_OF_MEMORY;
@@ -154,6 +157,13 @@ M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
     }
 
     m3gDeleteObject((M3GObject) loader);
+
+    /* Sweep the arena while we still know which load was the last one to
+     * touch it.  The result is sticky (m3gPspArenaGetStats reports the first
+     * violation and its address), so callers only have to read the counters;
+     * doing it here means neither the KNI natives nor the test harness can
+     * forget to. */
+    m3gPspArenaVerify();
 
     *objects = roots;
     return count;
@@ -171,12 +181,12 @@ void m3gPspReleaseRoots(M3GObject *objects, M3Gint count)
             m3gDeleteRef(objects[i]);
         }
     }
-    free(objects);
+    m3gPspArenaFree(objects);
 }
 
 void m3gPspFreeRootArray(M3GObject *objects)
 {
-    free(objects);
+    m3gPspArenaFree(objects);
 }
 
 M3Gint m3gPspGetClassID(M3GObject object)

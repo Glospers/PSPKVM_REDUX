@@ -40,11 +40,15 @@ TARGET     := $(TEST_DIR)/m3g_load_test
 
 INCLUDES   := -I$(M3G_DIR)/inc -I$(M3GCORE_DIR)/inc -I$(M3GCORE_DIR)/src
 DEFINES    := -DM3G_TARGET_SYMBIAN -Dm3gSymbianInflateBlock=m3gPspInflateBlock
+ifneq ($(M3G_PSP_ARENA_KB),)
+DEFINES    += -DM3G_PSP_ARENA_KB=$(M3G_PSP_ARENA_KB)
+endif
 CFLAGS     := $(ARCHFLAGS) -O1 -g -fno-strict-aliasing -w
 
 OBJS       := $(OBJDIR)/m3g_core.o \
               $(OBJDIR)/m3g_math_compat.o \
               $(OBJDIR)/m3g_inflate.o \
+              $(OBJDIR)/m3g_psp_arena.o \
               $(OBJDIR)/m3g_psp_loader.o \
               $(OBJDIR)/m3g_gl_stub.o \
               $(OBJDIR)/m3g_egl_stub.o \

@@ -96,6 +96,58 @@ void m3gPspFreeRootArray(M3GObject *objects);
 /*! \brief m3gGetClass, but tolerant of a NULL handle (returns -1). */
 M3Gint m3gPspGetClassID(M3GObject object);
 
+/*----------------------------------------------------------------------
+ * The engine's private heap
+ *
+ * m3gcore does not allocate from the C heap.  It cannot: on PSPKVM the Java
+ * object heap is itself one huge malloc'd block (javacall_memory_heap_allocate,
+ * javacall/implementation/psp_mips/common/memory.c:48), so engine blocks would
+ * sit directly against VM memory and an overrun either way would be invisible
+ * until the VM failed somewhere unrelated.  Instead every M3Gparams callback
+ * routes to src/m3g_psp_arena.c, a fixed static heap in .bss with guard bands
+ * and per-block canaries.
+ *
+ * The entry points below exist so the KNI layer can report what the arena saw
+ * after each load; see jsr184/src/native/m3g_loader_kni.c.
+ *--------------------------------------------------------------------*/
+
+/*! \brief Verification results, also used as the sticky fault code. */
+#define M3G_PSP_ARENA_OK           0
+#define M3G_PSP_ARENA_HEAD_GUARD   1  /* wrote before the first block   */
+#define M3G_PSP_ARENA_TAIL_GUARD   2  /* wrote past the last block      */
+#define M3G_PSP_ARENA_BAD_HEADER   3  /* block header magic destroyed   */
+#define M3G_PSP_ARENA_BAD_FOOTER   4  /* block overran its own payload  */
+#define M3G_PSP_ARENA_BAD_CHAIN    5  /* prev-size links inconsistent   */
+#define M3G_PSP_ARENA_DOUBLE_FREE  6
+#define M3G_PSP_ARENA_FOREIGN_PTR  7  /* free() of a non-arena pointer  */
+
+typedef struct {
+    M3Gint capacity;   /* usable bytes in the arena                       */
+    M3Gint used;       /* payload bytes currently handed out              */
+    M3Gint peak;       /* high-water mark of the above                    */
+    M3Gint blocks;     /* live blocks                                     */
+    M3Gint failures;   /* allocations the arena could not serve           */
+    M3Gint corrupt;    /* canary violations seen so far                   */
+    M3Gint firstBad;   /* address of the first block found corrupt        */
+    M3Gint fault;      /* M3G_PSP_ARENA_* code of that first violation    */
+} M3GPspArenaStats;
+
+/*! \brief Allocates from the engine arena.  The M3Gparams mallocFunc. */
+void *m3gPspArenaAlloc(M3Guint bytes);
+
+/*! \brief Returns a block to the engine arena.  The M3Gparams freeFunc. */
+void m3gPspArenaFree(void *ptr);
+
+/*!
+ * \brief Walks every guard band, block header and block canary.
+ *
+ * \return M3G_PSP_ARENA_OK, or the first M3G_PSP_ARENA_* fault found.
+ */
+M3Gint m3gPspArenaVerify(void);
+
+/*! \brief Copies out the arena counters.  Never fails. */
+void m3gPspArenaGetStats(M3GPspArenaStats *out);
+
 #if defined(__cplusplus)
 }
 #endif

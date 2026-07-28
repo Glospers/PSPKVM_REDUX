@@ -25,6 +25,7 @@
  */
 
 #include <stddef.h>     /* NULL -- kni.h does not pull in a libc header */
+#include <stdio.h>      /* sprintf, for the diagnostic line below       */
 
 #include <kni.h>
 #include <sni.h>
@@ -37,6 +38,56 @@
 
 static M3GObject *s_roots     = NULL;
 static M3Gint     s_rootCount = 0;
+
+/*----------------------------------------------------------------------
+ * Arena reporting
+ *
+ * m3gcore allocates from a private static heap rather than the C heap, because
+ * on this platform the C heap contains the Java object heap and an engine
+ * overrun would land in VM metadata (see inc/M3G/m3g_psp.h and
+ * m3g/src/m3g_psp_arena.c). The arena is checked after every load; this writes
+ * what it found to ms0:/pspkvm_vm.log, the same sink the interpreter's
+ * null-constant-pool guard uses (docker/patches/0043).
+ *
+ * Declared weak so a build without that patch -- and the romgen host tool,
+ * which never has javacall -- still links; there the symbol resolves to 0 and
+ * the report is skipped.
+ *--------------------------------------------------------------------*/
+
+extern void javacall_diag_log(const char *s) __attribute__((weak));
+
+/*!
+ * \brief Writes one line per load: what the arena holds and whether it is intact.
+ *
+ * A clean line looks like
+ *
+ *   M3G: load ok roots=1 arena used=41232 peak=41232 blk=612 cap=1572736
+ *
+ * and a line with a non-zero corrupt= or fail= count is the whole point of the
+ * exercise: corrupt= means something wrote outside a block it owns and fault=
+ * says which canary caught it (M3G_PSP_ARENA_* in m3g_psp.h), fail= means the
+ * arena is too small and M3G_PSP_ARENA_KB needs raising.
+ */
+static void m3gReportArena(jint result)
+{
+    M3GPspArenaStats st;
+    char line[192];
+
+    if (javacall_diag_log == 0) {
+        return;
+    }
+
+    m3gPspArenaGetStats(&st);
+
+    sprintf(line,
+            "M3G: load %d roots=%d arena used=%d peak=%d blk=%d cap=%d "
+            "fail=%d corrupt=%d fault=%d at=0x%08x\n",
+            (int) result, (int) ((result > 0) ? result : 0),
+            (int) st.used, (int) st.peak, (int) st.blocks, (int) st.capacity,
+            (int) st.failures, (int) st.corrupt, (int) st.fault,
+            (unsigned int) st.firstBad);
+    javacall_diag_log(line);
+}
 
 /*!
  * \brief Throws away a result nobody claimed, objects and all.
@@ -100,6 +151,8 @@ Java_javax_microedition_m3g_Loader_nLoadData()
         }
     }
     KNI_EndHandles();
+
+    m3gReportArena(result);
 
     KNI_ReturnInt(result);
 }

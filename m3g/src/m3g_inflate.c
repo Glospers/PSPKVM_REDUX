@@ -40,8 +40,38 @@
  * published by the Free Software Foundation.
  */
 
-#include "M3G/m3g_core.h"
+#include "M3G/m3g_psp.h"
 #include <zlib.h>
+
+/*----------------------------------------------------------------------
+ * zlib's own scratch memory
+ *
+ * uncompress() would allocate inflate's state and its 32 KB sliding window
+ * with plain malloc, which on this platform means the C heap -- the one that
+ * holds the Java object heap and has only a few hundred KB free after VM
+ * startup (see inc/M3G/m3g_psp.h).  Routing zlib at the engine arena instead
+ * means the whole .m3g load path, engine and decompressor alike, touches no C
+ * heap at all, so nothing about loading a scene can reach VM memory or starve
+ * the rest of the runtime.
+ *
+ * This is why the code below drives inflate by hand rather than calling
+ * uncompress(): the allocator hooks live on z_stream, and uncompress() does
+ * not expose one.  The sequence is otherwise identical to uncompress()'s own
+ * (zlib/uncompr.c) -- inflateInit for the zlib wrapper format, one
+ * inflate(Z_FINISH) over the whole buffer, inflateEnd.
+ *--------------------------------------------------------------------*/
+
+static voidpf m3gPspZAlloc(voidpf opaque, uInt items, uInt size)
+{
+    (void) opaque;
+    return (voidpf) m3gPspArenaAlloc((M3Guint) items * (M3Guint) size);
+}
+
+static void m3gPspZFree(voidpf opaque, voidpf address)
+{
+    (void) opaque;
+    m3gPspArenaFree((void *) address);
+}
 
 /*!
  * \brief Inflates one zlib stream into a caller-supplied buffer.
@@ -55,23 +85,41 @@
  *
  * Zero is the failure value the caller expects: src/m3g_loader.c:481 frees the
  * output buffer and fails the section when this returns false.
+ *
+ * avail_out is dstLength and never more, so a stream that claims to expand to
+ * more than the section header promised runs out of output space and is
+ * rejected rather than being allowed to write past \c dst.
  */
 M3Gsizei m3gPspInflateBlock(M3Gsizei srcLength, const M3Gubyte *src,
                             M3Gsizei dstLength, M3Gubyte *dst)
 {
-    uLongf outLength;
+    z_stream stream;
     int rc;
 
     if (src == 0 || dst == 0 || srcLength <= 0 || dstLength <= 0) {
         return 0;
     }
 
-    outLength = (uLongf) dstLength;
-    rc = uncompress((Bytef *) dst, &outLength,
-                    (const Bytef *) src, (uLong) srcLength);
+    stream.zalloc    = m3gPspZAlloc;
+    stream.zfree     = m3gPspZFree;
+    stream.opaque    = (voidpf) 0;
+    stream.next_in   = (Bytef *) src;
+    stream.avail_in  = (uInt) srcLength;
+    stream.next_out  = (Bytef *) dst;
+    stream.avail_out = (uInt) dstLength;
+    stream.msg       = 0;
 
-    if (rc != Z_OK) {
+    if (inflateInit(&stream) != Z_OK) {
         return 0;
     }
-    return (M3Gsizei) outLength;
+
+    rc = inflate(&stream, Z_FINISH);
+    inflateEnd(&stream);
+
+    /* Anything short of Z_STREAM_END means truncated input, corrupt input, or
+     * more output than the section header declared.  All are section failures. */
+    if (rc != Z_STREAM_END) {
+        return 0;
+    }
+    return (M3Gsizei) stream.total_out;
 }

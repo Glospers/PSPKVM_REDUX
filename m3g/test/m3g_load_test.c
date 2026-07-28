@@ -147,5 +147,37 @@ int main(int argc, char **argv)
     }
 
     printf("\n%d file(s), %d failure(s)\n", argc - 1, failures);
+
+    /*
+     * The engine allocates from its own guarded heap rather than the C heap
+     * (../src/m3g_psp_arena.c), which makes this harness a memory-safety test
+     * as well as a parse test: every block carries a canary, the arena has a
+     * guard band at each end, and m3gPspLoadFromMemory sweeps the lot after
+     * every file.  A non-zero corrupt= count is an out-of-bounds write by the
+     * engine and fails the run regardless of whether anything parsed.
+     */
+    {
+        M3GPspArenaStats st;
+        M3Gint fault;
+
+        fault = m3gPspArenaVerify();
+        m3gPspArenaGetStats(&st);
+
+        printf("arena: cap=%d used=%d peak=%d blocks=%d "
+               "alloc-failures=%d corrupt=%d fault=%d at=0x%08x\n",
+               (int) st.capacity, (int) st.used, (int) st.peak,
+               (int) st.blocks, (int) st.failures, (int) st.corrupt,
+               (int) st.fault, (unsigned) st.firstBad);
+
+        if (st.corrupt != 0 || fault != M3G_PSP_ARENA_OK) {
+            printf("ARENA CORRUPTION DETECTED\n");
+            failures++;
+        }
+        if (st.failures != 0) {
+            printf("ARENA TOO SMALL -- raise M3G_PSP_ARENA_KB\n");
+            failures++;
+        }
+    }
+
     return (failures == 0) ? 0 : 1;
 }
