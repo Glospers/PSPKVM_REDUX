@@ -1,0 +1,11 @@
+--- a/javacall/implementation/psp_mips/midp/ft_support.c
++++ b/javacall/implementation/psp_mips/midp/ft_support.c
+@@ -224,7 +224,7 @@
+ void init_from_config() {
+ 	if (_ftc_config_read) {
+ 		return; }
+-	_ftc_use_internal_font = get_internal_font_set_vmconfig();
++	_ftc_use_internal_font = 1;
+ 	_ftc_need_utility_font = get_need_utility_font_vmconfig();
+ 	if (_ftc_use_internal_font) {
+ 		// Done

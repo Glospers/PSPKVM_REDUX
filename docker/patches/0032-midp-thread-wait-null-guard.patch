@@ -1,0 +1,21 @@
+diff --git a/midp/src/core/vm_services/cldc_vm/native/midp_thread.c b/midp/src/core/vm_services/cldc_vm/native/midp_thread.c
+index 16427efb..ef2c755b 100644
+--- a/midp/src/core/vm_services/cldc_vm/native/midp_thread.c
++++ b/midp/src/core/vm_services/cldc_vm/native/midp_thread.c
+@@ -64,8 +64,15 @@ midp_thread_wait(midpSignalType waitingFor, int descriptor, void* pResult)
+         p = (MidpReentryData*)
+              (SNI_AllocateReentryData(sizeof (MidpReentryData)));
+         if (p == NULL) {
+-            REPORT_CRIT(LC_CORE, 
++            REPORT_CRIT(LC_CORE,
+                         "midp_cond_wait: failed to allocate reentry data");
++            /* The original code logged this and then fell through to
++               dereference the NULL p. Modern GCC proves that path erroneous
++               (-fisolate-erroneous-paths-dereference) and replaces it with a
++               `break` instruction, so the failure shows up as a CPU trap
++               instead of a message. Return instead: the caller's thread simply
++               isn't blocked, which is recoverable, and the log line survives. */
++            return;
+         }
+     }
+ 

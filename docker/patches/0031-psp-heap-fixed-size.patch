@@ -1,0 +1,11 @@
+--- a/psp/pspkvm.c
++++ b/psp/pspkvm.c
+@@ -48,7 +48,7 @@
+ PSP_MAIN_THREAD_ATTR(0);
+ #endif
+ 
+-PSP_HEAP_SIZE_KB(-3048);
++PSP_HEAP_SIZE_KB(32768);
+ 
+ /* Modern pspdev's C runtime calls __timezone_update() -> setenv("TZ", ...) during
+    startup, but in a PRX `environ` is (re)initialized to garbage, so newlib's

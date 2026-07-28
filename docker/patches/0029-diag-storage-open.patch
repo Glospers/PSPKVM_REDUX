@@ -1,0 +1,21 @@
+diff --git a/midp/src/core/storage/reference/native/midpStorage.c b/midp/src/core/storage/reference/native/midpStorage.c
+index 2e9f03ce..c4f6f82b 100644
+--- a/midp/src/core/storage/reference/native/midpStorage.c
++++ b/midp/src/core/storage/reference/native/midpStorage.c
+@@ -386,6 +386,16 @@ storage_open(char** ppszError, const pcsl_string* filename_str, int ioMode) {
+ 
+     openStatus = pcsl_file_open(filename_str, flags, &handle);
+ 
++    {   /* DIAGNOSTIC: log the exact path + open result to find the failing skin file */
++        const jchar* _fn = pcsl_string_get_utf16_data(filename_str);
++        int _fl = pcsl_string_length(filename_str);
++        char _fb[300]; int _fi;
++        for (_fi = 0; _fi < _fl && _fi < 299; _fi++) _fb[_fi] = (char)(_fn ? _fn[_fi] : '?');
++        _fb[_fi] = 0;
++        javacall_printf("PKVFILE: open st=%d flags=%d '%s'\n", openStatus, flags, _fb);
++        if (_fn) pcsl_string_release_utf16_data(_fn, filename_str);
++    }
++
+     REPORT_INFO1(LC_CORE, "storage_open allocated file_desc %d\n", (int)handle);
+ 
+     if (-1 == openStatus) {

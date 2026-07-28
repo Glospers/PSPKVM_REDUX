@@ -1,0 +1,219 @@
+diff --git a/javacall/implementation/psp_mips/common/events.c b/javacall/implementation/psp_mips/common/events.c
+index 11f2e1ae..c02b821a 100644
+--- a/javacall/implementation/psp_mips/common/events.c
++++ b/javacall/implementation/psp_mips/common/events.c
+@@ -25,6 +25,7 @@
+ 
+ #include "pspthreadman.h"
+ #include "javacall_events.h"
++#include "javacall_logging.h"
+ #include <stdlib.h>
+ #include <string.h>
+ 
+@@ -32,12 +33,30 @@
+ extern "C" {
+ #endif
+ 
+-#define NUM_MBX 10
+-static int _psp_mailboxID[NUM_MBX];
+-static SceUID _psp_semaID;
+-
+-#define NEXT(i) (i >= (NUM_MBX - 1) ? 0 : i+1)
+-static int _mbxid_recv,  _mbxid_send;
++/* Self-managed event queue: a ring of malloc'd message buffers guarded by a
++ * mutex semaphore, with a counting semaphore tracking how many messages are
++ * queued. This replaces the PSP mailbox (sceKernelSendMbx/sceKernelReceiveMbx)
++ * path, whose sceKernelSendMbx returns -1 under the modern PSP SDK on PPSSPP,
++ * so start/key/etc. events were never delivered and the VM never launched.
++ *
++ * Each message buffer layout (unchanged, so callers are unaffected):
++ *   [0] int  : reserved (kept for buffer-layout compatibility)
++ *   [1] int  : payload length
++ *   [2..]    : payload bytes
++ */
++#define EV_QMAX 128
++static void*  _ev_q[EV_QMAX];
++static int    _ev_head = 0;    /* next slot to write */
++static int    _ev_tail = 0;    /* next slot to read  */
++static SceUID _ev_mutex = -1;  /* protects head/tail (binary sema, init 1) */
++static SceUID _ev_items = -1;  /* counts queued messages (counting sema, init 0) */
++
++/* Diagnostic boot counters (set from possibly-interrupt context, so no I/O
++ * here — only plain writes). Printed from the safe JavaTask loop. */
++volatile int g_pkv_start_called  = 0;
++volatile int g_pkv_send_called   = 0;
++volatile int g_pkv_send_ret      = -999;
++volatile int g_pkv_events_inited = 0;
+ 
+ /**
+  * Waits for an incoming event message and copies it to user supplied
+@@ -70,42 +89,38 @@ javacall_result javacall_event_receive(
+     void* msg;
+     int ret;
+     SceUInt to;
+-    static int busy_count = 0;
+ 
+-    if (busy_count > 40 && timeTowaitInMillisec == 0) {
+-        timeTowaitInMillisec = 30;
+-        busy_count = 0;
+-    }
+-    
++    /* Block/poll/timeout on the "items available" counting semaphore. */
+     if (timeTowaitInMillisec < 0) {
+-    	busy_count = 0;
+-    	ret = sceKernelReceiveMbxCB(_psp_mailboxID[_mbxid_recv], &msg, NULL);
++        ret = sceKernelWaitSemaCB(_ev_items, 1, NULL);
+     } else if (timeTowaitInMillisec == 0) {
+-       busy_count++;
+-       to = 0;
+-       ret = sceKernelPollMbx(_psp_mailboxID[_mbxid_recv], &msg);
++        ret = sceKernelPollSema(_ev_items, 1);
+     } else {
+-       busy_count = 0;
+-       to = timeTowaitInMillisec * 1000;
+-       ret = sceKernelReceiveMbxCB(_psp_mailboxID[_mbxid_recv], &msg, &to);
++        to = (SceUInt)timeTowaitInMillisec * 1000;
++        ret = sceKernelWaitSemaCB(_ev_items, 1, &to);
+     }
+ 
+-    
+-    if (ret ==0) {
+-    	int len = *((int*)msg+1);
+-    	_mbxid_recv = NEXT(_mbxid_recv);
+-
+-    	if (binaryBufferMaxLen < len) {
+-           free(msg);
+-    	    return JAVACALL_OUT_OF_MEMORY;
+-    	} else {
+-    	    memcpy(binaryBuffer, (char*)msg+sizeof(int)+sizeof(int), len);
+-    	    *outEventLen = len;
+-    	    free(msg);
+-    	    return JAVACALL_OK;
+-    	}
++    if (ret != 0) {
++        return JAVACALL_FAIL;   /* timed out or error: no message available */
++    }
++
++    /* The semaphore reserved one message for us; pop it under the mutex. */
++    sceKernelWaitSema(_ev_mutex, 1, NULL);
++    msg = _ev_q[_ev_tail];
++    _ev_tail = (_ev_tail + 1) % EV_QMAX;
++    sceKernelSignalSema(_ev_mutex, 1);
++
++    {
++        int len = *((int*)msg + 1);
++        if (binaryBufferMaxLen < len) {
++            free(msg);
++            return JAVACALL_OUT_OF_MEMORY;
++        }
++        memcpy(binaryBuffer, (char*)msg + sizeof(int) + sizeof(int), len);
++        if (outEventLen) *outEventLen = len;
++        free(msg);
++        return JAVACALL_OK;
+     }
+-    return JAVACALL_FAIL;
+ }
+ /**
+  * copies a user supplied event message to a queue of messages
+@@ -120,52 +135,48 @@ javacall_result javacall_event_receive(
+ javacall_result javacall_event_send(unsigned char* binaryBuffer,
+                                     int binaryBufferLen){
+     char* p = NULL;
+-    int id;
+ 
+     p = (char*)malloc(binaryBufferLen+sizeof(int)+sizeof(int));
+-    if (p) {
+-    	 *(int*)(p+sizeof(int)) = binaryBufferLen;
+-    	 memcpy(p+sizeof(int)+sizeof(int), binaryBuffer, binaryBufferLen);
+-        
+-        sceKernelWaitSemaCB(_psp_semaID, 1, NULL);
+-        if (NEXT(_mbxid_send) == _mbxid_recv) {
+-        	javacall_printf("javacall_event_send: discard event\n");
+-        	sceKernelSignalSema(_psp_semaID, 1);
+-        	return JAVACALL_FAIL;
+-        }
+-        id = _mbxid_send;
+-        _mbxid_send = NEXT(_mbxid_send);
+-        sceKernelSignalSema(_psp_semaID, 1);
+-        
+-	 sceKernelSendMbx(_psp_mailboxID[id], (void*)p);
+-        return JAVACALL_OK;
+-    } else {
++    if (!p) {
+         return JAVACALL_FAIL;
+     }
+-    return JAVACALL_FAIL;
+-}    
++    *(int*)(p+sizeof(int)) = binaryBufferLen;
++    memcpy(p+sizeof(int)+sizeof(int), binaryBuffer, binaryBufferLen);
++
++    sceKernelWaitSema(_ev_mutex, 1, NULL);
++    if ((_ev_head + 1) % EV_QMAX == _ev_tail) {   /* queue full: drop */
++        sceKernelSignalSema(_ev_mutex, 1);
++        javacall_printf("javacall_event_send: discard event\n");
++        free(p);
++        g_pkv_send_called++;
++        g_pkv_send_ret = -3;
++        return JAVACALL_FAIL;
++    }
++    _ev_q[_ev_head] = p;
++    _ev_head = (_ev_head + 1) % EV_QMAX;
++    sceKernelSignalSema(_ev_mutex, 1);
++
++    g_pkv_send_ret = sceKernelSignalSema(_ev_items, 1);   /* wake a receiver */
++    g_pkv_send_called++;
++    return JAVACALL_OK;
++}
+ 
+ //PSPGlobalINFO _psp_global_info;
+ javacall_result javacall_events_init(void) {
+-    int i;
+-    for (i = 0; i < NUM_MBX; i++) {
+-        _psp_mailboxID[i] = sceKernelCreateMbx("JavaMessagebox", 0, NULL);
+-    }
+-    _mbxid_send = _mbxid_recv = 0;
+-    _psp_semaID = sceKernelCreateSema("JavaEventQMutex", 0, 1, 1, 0);
+-
++    _ev_head = _ev_tail = 0;
++    _ev_mutex = sceKernelCreateSema("JavaEvMutex", 0, 1, 1, 0);
++    _ev_items = sceKernelCreateSema("JavaEvItems", 0, 0, EV_QMAX, 0);
++    javacall_printf("PKVBOOT: events_init mutex=%d items=%d\n",
++                    (int)_ev_mutex, (int)_ev_items);
++    g_pkv_events_inited = 1;
+     return JAVACALL_OK;
+ }
+ 
+ javacall_result javacall_events_finalize(void) {
+-    int i;
+-    for (i = 0; i < NUM_MBX; i++) {
+-        sceKernelDeleteMbx(_psp_mailboxID[i]);
+-         _psp_mailboxID[i] = 0;
+-    }
+-    sceKernelDeleteSema(_psp_semaID);
+-    _mbxid_send = _mbxid_recv = 0;
+-    _psp_semaID = 0;
++    if (_ev_mutex >= 0) sceKernelDeleteSema(_ev_mutex);
++    if (_ev_items >= 0) sceKernelDeleteSema(_ev_items);
++    _ev_mutex = _ev_items = -1;
++    _ev_head = _ev_tail = 0;
+     return JAVACALL_OK;
+ }
+ 
+diff --git a/midp/src/highlevelui/javacall_application/reference/native/javanotify_functions.c b/midp/src/highlevelui/javacall_application/reference/native/javanotify_functions.c
+index 867a8486..3f00762b 100644
+--- a/midp/src/highlevelui/javacall_application/reference/native/javanotify_functions.c
++++ b/midp/src/highlevelui/javacall_application/reference/native/javanotify_functions.c
+@@ -135,10 +135,13 @@ void javanotify_pen_event(int x, int y, javacall_penevent_type type) {
+  * The platform should invoke this function in platform context to start
+  * Java.
+  */
++extern volatile int g_pkv_start_called;
++
+ void javanotify_start(void) {
+     midp_jc_event_union e;
+     midp_jc_event_start_arbitrary_arg *data = &e.data.startMidletArbitraryArgEvent;
+ 
++    g_pkv_start_called++;
+     REPORT_INFO(LC_CORE, "javanotify_start() >>\n");
+ 
+     e.eventType = MIDP_JC_EVENT_START_ARBITRARY_ARG;

@@ -1,0 +1,72 @@
+diff --git a/pcsl/memory/heap/pcsl_chunkheap.c b/pcsl/memory/heap/pcsl_chunkheap.c
+index ea6511ae..2b49e8fd 100644
+--- a/pcsl/memory/heap/pcsl_chunkheap.c
++++ b/pcsl/memory/heap/pcsl_chunkheap.c
+@@ -89,6 +89,8 @@ void* pcsl_mem_allocate_chunk(unsigned int initial_size,
+                               unsigned int alignment){
+     ChunkInfo *ci;
+     void *ptr;
++    javacall_printf("PKVMEM: alloc_chunk init=%u max=%u align=%u\n",
++                    initial_size, max_size, alignment);
+     ci = (ChunkInfo*)pcsl_mem_malloc(sizeof(ChunkInfo));
+     if (ci == NULL) {
+         return NULL;
+diff --git a/pcsl/memory/heap/pcsl_memory.c b/pcsl/memory/heap/pcsl_memory.c
+index 678d4057..b6e78dfa 100644
+--- a/pcsl/memory/heap/pcsl_memory.c
++++ b/pcsl/memory/heap/pcsl_memory.c
+@@ -332,6 +332,9 @@ pcsl_mem_initialize_impl0(void *startAddr, int size) {
+     pcslMemoryHdr->guard = GUARD_WORD;
+     pcslMemoryHdr->guardSize = 0;
+ #endif
++    javacall_printf("PKVMEM: pool init start=%p end=%p size=%d firstblk=%u hdr=%u\n",
++                    (void*)PcslMemoryStart, (void*)PcslMemoryEnd, size,
++                    pcslMemoryHdr->size, (unsigned)sizeof(_PcslMemHdr));
+     return 0;
+ }
+ 
+@@ -405,14 +408,25 @@ pcsl_mem_malloc_impl0(unsigned int size) {
+         numBytesToAllocate++;
+     }
+ 
++    if (size > 0x100000) {
++        javacall_printf("PKVMEM: malloc req=%u aligned=%u start=%p end=%p\n",
++                        size, numBytesToAllocate,
++                        (void*)PcslMemoryStart, (void*)PcslMemoryEnd);
++    }
++
+     /* find a free slot */
+     for (pcslMemoryPtr = PcslMemoryStart;
+          pcslMemoryPtr < PcslMemoryEnd;
+          pcslMemoryPtr += pcslMemoryHdr->size + sizeof(_PcslMemHdr)) {
+-        
++
+         pcslMemoryHdr = (_PcslMemHdrPtr)pcslMemoryPtr;
+         if (pcslMemoryHdr->magic != MAGIC) {
+-            REPORT1("ERROR: Memory corruption at 0x%p\n", pcslMemoryPtr); 
++            javacall_printf("PKVMEM: POOL CORRUPT at %p magic=%x want=%x "
++                            "(start=%p end=%p req=%u)\n",
++                            (void*)pcslMemoryPtr, (unsigned)pcslMemoryHdr->magic,
++                            (unsigned)MAGIC, (void*)PcslMemoryStart,
++                            (void*)PcslMemoryEnd, size);
++            REPORT1("ERROR: Memory corruption at 0x%p\n", pcslMemoryPtr);
+             return((void *) 0);
+         } else {
+             while ( 1 ) {
+@@ -453,6 +467,16 @@ pcsl_mem_malloc_impl0(unsigned int size) {
+                     nextHdr = (_PcslMemHdrPtr)((char *)pcslMemoryPtr
+                                                + numBytesToAllocate
+                                                + sizeof(_PcslMemHdr));
++                    if ((char*)nextHdr < PcslMemoryStart ||
++                        (char*)nextHdr >= PcslMemoryEnd) {
++                        javacall_printf("PKVMEM: WILD split nextHdr=%p block=%p "
++                                        "blksize=%u req=%u start=%p end=%p\n",
++                                        (void*)nextHdr, (void*)pcslMemoryPtr,
++                                        pcslMemoryHdr->size, numBytesToAllocate,
++                                        (void*)PcslMemoryStart,
++                                        (void*)PcslMemoryEnd);
++                        return((void *) 0);
++                    }
+                     nextHdr->magic = MAGIC;
+                     nextHdr->free = 1;
+                     nextHdr->size = pcslMemoryHdr->size 

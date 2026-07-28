@@ -5,6 +5,7 @@
 /pspkvm/
 /m3gcore/
 
+/.debug/
 
 # --- Build artifacts ---------------------------------------------------------
 *.o
@@ -16,8 +17,15 @@ PARAM.SFO
 **/output/
 /build/
 /dist/
+/ppsspp_win/
+/working pspkvm/
 
 # --- OS / editor -------------------------------------------------------------
 .DS_Store
 Thumbs.db
 *.swp
+
+# Local disposable build tree (mounted into the container)
+/build-src/
+
+# Dead-end diagnostic patches kept locally for reference only

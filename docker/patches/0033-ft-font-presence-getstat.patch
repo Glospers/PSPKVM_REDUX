@@ -1,0 +1,63 @@
+diff --git a/javacall/implementation/psp_mips/midp/ft_support.c b/javacall/implementation/psp_mips/midp/ft_support.c
+index d2d082f..a436e63 100755
+--- a/javacall/implementation/psp_mips/midp/ft_support.c
++++ b/javacall/implementation/psp_mips/midp/ft_support.c
+@@ -1,6 +1,28 @@
+ #include "ft_support.h"
+ #include "alpha_blend.h"
+ #include <unistd.h>
++#include <stdio.h>
++#include <pspiofilemgr.h>
++
++/* Modern pspdev newlib file glue is unreliable on the PSP: lseek() and
++   fstat() both return garbage (see javacall/.../common/file.c) and access()
++   is in the same family. When access() wrongly reports the .ttf files
++   absent, initialize_face_ids() takes its "no system font at all" early
++   return and leaves ftc_faceids[] unpopulated, so get_face_id() hands
++   FreeType a bogus FTC_FaceID which fts_face_requester() passes to
++   FT_New_Face() as a path -- fopen() then walks that wild pointer and
++   faults inside __get_drive(). Ask the kernel directly instead;
++   sceIoGetstat() does not resolve paths against the process cwd, so build
++   a device-qualified absolute path from getcwd(). */
++static int ft_file_present(const char* fn) {
++	char abspath[512];
++	char cwd[512];
++	SceIoStat st;
++	cwd[0] = 0;
++	getcwd(cwd, sizeof(cwd));
++	snprintf(abspath, sizeof(abspath), "%s/%s", cwd, fn);
++	return (sceIoGetstat(abspath, &st) >= 0) ? 1 : 0;
++}
+ 
+ /* Newer FreeType no longer exposes FT_CALLBACK_DEF to client code (it became a
+    library-internal macro, only defined when building FreeType itself). The one
+@@ -111,7 +133,7 @@ void initialize_face_ids() {
+ 	int i;
+ 	_ftc_no_sys_font_present = 1;
+ 	for(i=0;i<_FTC_FACEID_COUNT;i++) {
+-		font_file_present[i]=(access((_typeface_filenames[i]), R_OK) == 0) ? 1 : 0;
++		font_file_present[i]=ft_file_present(_typeface_filenames[i]);
+ 		if (font_file_present[i]) {
+ 			_ftc_no_sys_font_present = 0; } }
+ 	if (_ftc_no_sys_font_present) {
+@@ -124,7 +146,7 @@ void initialize_face_ids() {
+ 		
+ // Call to initialize the 'last resort' fallback system
+ void initialize_fallback_system() {
+-	fallback_font_present = (access((_fallback_fn), R_OK) == 0) ? 1 : 0; }
++	fallback_font_present = ft_file_present(_fallback_fn); }
+ 
+ // Resolve face specs to an FTC_FaceID
+ // for requesting faces from the cache system.
+@@ -222,6 +244,11 @@ fts_face_requester(
+ 	FT_Face*    aface)  {    
+ 
+ 	FT_UNUSED( request_data );
++	/* face_id doubles as the font's path. A NULL id here used to reach
++	   fopen() and fault inside __get_drive() while it scanned for a drive
++	   prefix; fail the lookup cleanly so the caller can fall back. */
++	if (face_id == NULL) {
++		return FT_Err_Cannot_Open_Resource; }
+ 	return FT_New_Face(lib, (const char*)face_id, 0, aface); }
+ 
+ // Utility inline to set an FTC_ScalerRec structure consistently.  

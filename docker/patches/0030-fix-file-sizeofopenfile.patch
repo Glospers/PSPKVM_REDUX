@@ -1,0 +1,199 @@
+diff --git a/javacall/implementation/psp_mips/common/file.c b/javacall/implementation/psp_mips/common/file.c
+index 039c4b62..c260a236 100644
+--- a/javacall/implementation/psp_mips/common/file.c
++++ b/javacall/implementation/psp_mips/common/file.c
+@@ -19,6 +19,7 @@ extern "C" {
+ #include <unistd.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <errno.h>
+ #include <pspiofilemgr.h>
+ #define MAX_FILE_NAME_LEN JAVACALL_MAX_FILE_NAME_LENGTH
+ 
+@@ -28,6 +29,28 @@ extern "C" {
+ static int fileopencount=0;
+ #endif
+ 
++/* Modern pspdev newlib's lseek() and fstat() both return wrong file sizes:
++   lseek() ignores `whence` and returns a garbage RAM address, while fstat()
++   fills newlib's struct stat with a mismatched layout (st_size reads as e.g.
++   73 for a 5776-byte file). So javacall_file_sizeofopenfile() cannot use
++   either. Instead we remember the OS path for every open fd and query the
++   size with sceIoGetstat(), which fills the native SceIoStat correctly (this
++   is the same call javacall_file_sizeof() already relied on). */
++#define JC_MAX_FD 64
++static char jc_fd_path[JC_MAX_FD][MAX_FILE_NAME_LEN+1];
++
++static void jc_fd_path_set(int fd, const char* path) {
++    if (fd >= 0 && fd < JC_MAX_FD) {
++        strncpy(jc_fd_path[fd], path, MAX_FILE_NAME_LEN);
++        jc_fd_path[fd][MAX_FILE_NAME_LEN] = 0;
++    }
++}
++static void jc_fd_path_clear(int fd) {
++    if (fd >= 0 && fd < JC_MAX_FD) {
++        jc_fd_path[fd][0] = 0;
++    }
++}
++
+ char* javacall_UNICODEsToUtf8(const javacall_utf16* fileName, int fileNameLen) {
+     static char result[MAX_FILE_NAME_LEN+1];
+     if (fileNameLen >= MAX_FILE_NAME_LEN) {
+@@ -119,6 +142,7 @@ javacall_result javacall_file_open(const javacall_utf16 * unicodeFileName, int f
+ #endif
+ 
+     *handle = (javacall_handle)fd;
++    jc_fd_path_set(fd, pszOsFilename);
+ 
+ #ifdef DEBUG_JAVACALL_FILE
+     fileopencount++;
+@@ -138,6 +162,7 @@ javacall_result javacall_file_close(javacall_handle handle) {
+         javacall_printf("javacall_file_close():%d\n", handle);
+ #endif
+ 	int rc = close((int)handle);
++	jc_fd_path_clear((int)handle);
+ #ifdef DEBUG_JAVACALL_FILE
+     fileopencount--;
+     javacall_printf("javacall_file_close:count=%d\n", fileopencount);
+@@ -155,14 +180,31 @@ javacall_result javacall_file_close(javacall_handle handle) {
+  * @return the number of bytes actually read
+  */
+ long javacall_file_read(javacall_handle handle, unsigned char *buf, long size) {
+-        long result;
+-	 result = read((int)handle, buf, size);
+-#ifdef DEBUG_JAVACALL_FILE
+-        if (result <= 0) {
+-            javacall_printf("javacall_file_read(%d, %p, %d): result=%x\n", handle, buf, (int)size, (int)result);
++        /* newlib read() -> sceIoRead() can only DMA into an address the kernel
++           accepts as valid PSP RAM. The pcsl heap pool sits at a low RAM mirror
++           the CPU can use but sceIoRead rejects (read() returns -1), so read
++           into a stack bounce buffer -- always valid -- and copy across. */
++        long total = 0;
++        unsigned char tmp[2048];
++        while (total < size) {
++            long chunk = size - total;
++            if (chunk > (long)sizeof(tmp)) chunk = (long)sizeof(tmp);
++            long r = read((int)handle, tmp, chunk);
++            if (r < 0) {
++                if (total == 0) {
++                    javacall_printf("PKVRD: fd=%d read err r=%ld errno=%d\n",
++                                    (int)handle, r, errno);
++                    return -1;
++                }
++                break;      /* return what we already read */
++            }
++            if (r == 0) {
++                break;      /* EOF */
++            }
++            memcpy(buf + total, tmp, (size_t)r);
++            total += r;
+         }
+-#endif
+-	 return result;
++	 return total;
+ }
+ 
+ /**
+@@ -175,7 +217,27 @@ long javacall_file_read(javacall_handle handle, unsigned char *buf, long size) {
+  *         written to fills up).
+  */
+ long javacall_file_write(javacall_handle handle, const unsigned char *buf, long size) {
+-	return write((int)handle, buf, size);
++	/* Mirror javacall_file_read(): sceIoWrite() can't DMA out of the pcsl heap
++	   pool's low mirror address, so copy through a stack bounce buffer. */
++	long total = 0;
++	unsigned char tmp[2048];
++	while (total < size) {
++	    long chunk = size - total;
++	    if (chunk > (long)sizeof(tmp)) chunk = (long)sizeof(tmp);
++	    memcpy(tmp, buf + total, (size_t)chunk);
++	    long w = write((int)handle, tmp, chunk);
++	    if (w < 0) {
++	        return (total == 0) ? -1 : total;
++	    }
++	    if (w == 0) {
++	        break;      /* storage full */
++	    }
++	    total += w;
++	    if (w < chunk) {
++	        break;      /* short write */
++	    }
++	}
++	return total;
+ }
+ 
+ /**
+@@ -258,34 +320,47 @@ javacall_int64 javacall_file_sizeofopenfile(javacall_handle handle) {
+ #endif
+     return (status == 0) ? stat_buf.st_size : -1;
+ */
+-    long status, mark, length;
+-    status = lseek((int)handle, 0, SEEK_CUR);
+-    if (status < 0) {
+-#ifdef DEBUG_JAVACALL_FILE
+-      javacall_printf("javacall_file_sizeofopenfile(%d): failed. result=%x\n", handle, status);
+-#endif
+-        return -1;
+-    } else {
+-        mark = status;
+-    }
+-    status = lseek((int)handle, 0, SEEK_END);
+-    if (status < 0) {
+-#ifdef DEBUG_JAVACALL_FILE
+-      javacall_printf("javacall_file_sizeofopenfile(%d): failed. result=%x\n", handle, status);
+-#endif
+-        return -1;
+-    } else {
+-        length = status;
+-    }
+-    status = lseek((int)handle, mark, SEEK_SET);
+-#ifdef DEBUG_JAVACALL_FILE
+-    if (status == 0) {
+-        javacall_printf("javacall_file_sizeofopenfile(%d): size=%x\n", handle, length);
++    int fd = (int)handle;
++    long sz = -1;
++    if (fd >= 0 && fd < JC_MAX_FD && jc_fd_path[fd][0]) {
++        const char* p = jc_fd_path[fd];
++        char abspath[MAX_FILE_NAME_LEN+1];
++        SceIoStat sstat;
++        int r;
++        /* sceIoGetstat() is a raw kernel call: unlike newlib open(), it does
++           not resolve paths against the process cwd, so a relative path like
++           "./lib/skin.bin" fails with 0x80010002 (FILE_NOT_FOUND). Build a
++           device-qualified absolute path from getcwd() when the stored path
++           isn't already absolute (an absolute PSP path contains the device
++           colon, e.g. "ms0:/..."). */
++        if (strchr(p, ':') != NULL) {
++            snprintf(abspath, sizeof(abspath), "%s", p);
++        } else {
++            char cwd[MAX_FILE_NAME_LEN+1];
++            const char* rp = p;
++            cwd[0] = 0;
++            getcwd(cwd, sizeof(cwd));
++            if (rp[0] == '.' && rp[1] == '/') rp += 2;      /* strip leading ./ */
++            else if (rp[0] == '/')            rp += 1;      /* avoid //         */
++            snprintf(abspath, sizeof(abspath), "%s/%s", cwd, rp);
++        }
++        r = sceIoGetstat(abspath, &sstat);
++        if (r >= 0) {
++            sz = (long)sstat.st_size;
++        }
++        javacall_printf("PKVSZ: fd=%d getstat_rc=%d size=%ld abspath='%s'\n",
++                        fd, r, sz, abspath);
+     } else {
+-        javacall_printf("javacall_file_sizeofopenfile(%d): failed. result=%x\n", handle, status);
++        /* No recorded path (shouldn't happen for opened files): fall back to
++           fstat, even though its st_size is unreliable on this toolchain. */
++        struct stat stat_buf;
++        int st = fstat(fd, &stat_buf);
++        if (st == 0) {
++            sz = (long)stat_buf.st_size;
++        }
++        javacall_printf("PKVSZ: fd=%d (no path) fstat_rc=%d size=%ld\n", fd, st, sz);
+     }
+-#endif
+-    return (status == 0) ? length : -1;
++    return (javacall_int64)sz;
+ }
+ 
+ /**

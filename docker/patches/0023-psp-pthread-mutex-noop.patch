@@ -1,0 +1,32 @@
+diff --git a/psp/pspkvm.c b/psp/pspkvm.c
+index 5924f188..2e308eae 100644
+--- a/psp/pspkvm.c
++++ b/psp/pspkvm.c
+@@ -65,6 +65,27 @@ int setenv(const char *name, const char *value, int rewrite) {
+     (void)name; (void)value; (void)rewrite; return 0;
+ }
+ 
++/* libgcc registers the module's C++ exception-frame table from a static
++   initializer (frame_dummy -> __register_frame_info_bases) that runs before
++   main(). On the modern toolchain that path takes a gthread mutex, whose
++   lock/unlock call into pthread_self before the thread runtime is initialized,
++   dereferencing an uninitialized thread pointer and faulting during startup.
++   PSPKVM synchronizes exclusively with sceKernel primitives and never relies on
++   pthread mutexes, so satisfy libgcc's weak gthread references with no-ops.
++   These live in pspkvm.o (always linked), overriding the library versions.
++
++   pthread_init() is likewise pulled in from libpthread (the pthreads-embedded
++   "pte" port) via the same gthread path. Its real body runs pte_osInit() ->
++   pteTlsGlobalInit() -> calloc() from a pre-main initializer, which faults in
++   malloc_extend_top() before the C heap top is usable. PSPKVM creates every
++   thread with sceKernelCreateThread and never starts the pthread runtime, so
++   override pthread_init() with a success no-op to keep the pte TLS setup (and
++   its early calloc) from running at all. */
++int pthread_mutex_lock(void *m)    { (void)m; return 0; }
++int pthread_mutex_unlock(void *m)  { (void)m; return 0; }
++int pthread_mutex_trylock(void *m) { (void)m; return 0; }
++int pthread_init(void)             { return 0; }
++
+ /* Define the main thread's attribute value (optional) */
+ //PSP_MAIN_THREAD_ATTR(THREAD_ATTR_USER | THREAD_ATTR_VFPU);
+ 
