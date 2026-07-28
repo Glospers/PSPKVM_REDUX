@@ -1,0 +1,44 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index 670c611..39c1b64 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -31,6 +31,7 @@ extern "C" {
+ #include <stdlib.h>
+ #include <string.h>
+ #include "javacall_multimedia.h"
++#include <javacall_properties.h>
+ #include "javacall_file.h"
+ #include "javacall_logging.h"
+ #include "SDL/SDL.h"
+@@ -182,6 +183,31 @@ javacall_result javacall_media_initialize(void) {
+        is_midi_support = 1;
+     }
+     
++    /* SDL_mixer's Mix_OpenAudio() initialises every music decoder, including
++       the bundled Timidity. In the toolchain we build against that path faults
++       on a null control-mode pointer before any sound is produced, taking the
++       whole VM with it: enabling music in Deep 3D Submarine Odyssey or starting
++       New York Nights died here. The library is prebuilt, so it cannot be fixed
++       from this tree. Leave audio off unless it is asked for explicitly, and
++       report a normal initialisation failure, which the media layer already
++       knows how to handle -- a MIDlet then runs without sound instead of
++       crashing. Set com.pspkvm.audio.enable to "on" in pspkvm.ini to try it. */
++    {
++        char* pAudio = NULL;
++        int audio_enabled = 0;
++        if ((JAVACALL_OK == javacall_get_property("com.pspkvm.audio.enable",
++                                JAVACALL_INTERNAL_PROPERTY, &pAudio))
++                && (pAudio != NULL)
++                && (pAudio[0] == 'o') && (pAudio[1] == 'n')) {
++            audio_enabled = 1;
++        }
++        if (!audio_enabled) {
++            javacall_print("audio disabled (com.pspkvm.audio.enable is not on)\n");
++            _javacall_media_initilized = -1;
++            return JAVACALL_FAIL;
++        }
++    }
++
+     max_patch_memory = 4*1024*1024;
+     
+     if(SDL_Init(SDL_INIT_AUDIO)==-1) {
