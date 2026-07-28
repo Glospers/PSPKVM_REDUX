@@ -1,0 +1,53 @@
+diff --git a/psp/pspkvm.c b/psp/pspkvm.c
+index 480ed59..0ed3a8d 100644
+--- a/psp/pspkvm.c
++++ b/psp/pspkvm.c
+@@ -38,6 +38,9 @@
+ #include <javacall_file.h>
+ #include <javacall_properties.h>
+ #include <javacall_logging.h>
++#include <unistd.h>
++
++extern char **environ;
+ 
+ /* Define the module info section */
+ #if _PSP_FW_VERSION >= 200
+@@ -652,6 +655,30 @@ int oskDialog(unsigned short* in, int inlen, unsigned short* title, int titlelen
+ }
+ 
+ 
++
++/* `environ` is left pointing at garbage in a PRX, which is why setenv() is
++   stubbed out above. getenv() walks the same array, so any library that reads
++   the environment faults: SDL_mixer's Timidity looks up TIMIDITY_CFG while
++   Mix_OpenAudio() initialises MIDI, and it crashed before a note was played.
++   Point environ at a real array and, while we are here, tell Timidity where its
++   config actually lives -- the kernel calls do not honour the working
++   directory, so hand it an absolute path. */
++static char  pspkvm_timidity_cfg[256];
++static char* pspkvm_environ[2];
++
++static void pspkvm_init_environ(void) {
++    char cwd[192];
++    cwd[0] = 0;
++    if (getcwd(cwd, sizeof(cwd)) == NULL || cwd[0] == 0) {
++        strcpy(cwd, "ms0:/PSP/GAME/PSPKVM");
++    }
++    snprintf(pspkvm_timidity_cfg, sizeof(pspkvm_timidity_cfg),
++             "TIMIDITY_CFG=%s/timidity.cfg", cwd);
++    pspkvm_environ[0] = pspkvm_timidity_cfg;
++    pspkvm_environ[1] = NULL;
++    environ = pspkvm_environ;
++}
++
+ int main(void)
+ {
+ 	SceUID thid;
+@@ -659,6 +686,7 @@ int main(void)
+ 	int ret_val = 0;
+ 	int i;
+ 
++	pspkvm_init_environ();
+ 	pspDebugScreenInit();
+ 	for (i = 0; i < DEBUG_SCREEN_WIDTH; i++) BLANK_DEBUG_LINE[i] = ' ';
+        BLANK_DEBUG_LINE[DEBUG_SCREEN_WIDTH] = '\0';
