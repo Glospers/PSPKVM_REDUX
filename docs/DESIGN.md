@@ -68,6 +68,25 @@ games render on real PSP hardware. PSPKVM implements MIDP 2.0 and a range of JSR
 | 3 | GL ES 1.x → `sceGu` rendering shim under the engine's backend | Deep 3D renders at a playable framerate (target 20+ fps) |
 | 4 | Per-game compatibility pass | Additional M3G titles (Galaxy on Fire, Asphalt 3D, Rayman Kart, Splinter Cell 3D) fixed |
 
+### What the engine drop is missing
+
+Two gaps in the m3gcore sources have to be filled before the engine will build
+and link, both found by working through the tree rather than from documentation:
+
+- **`M3G/m3g_core.h` is absent**, though `m3g_defs.h`, `m3g_gl.h` and
+  `m3g_memory.h` all include it. It has been reconstructed from the tree's own
+  use sites and verified by compiling every module against it. The public
+  enumerations it declares are not free choices: the `.m3g` loader reads raw
+  file bytes straight into the setters, so their values are fixed by the
+  JSR-184 binary format.
+- **Five matrix helpers are called but never defined** — `m3gMulMatrix`,
+  `m3gRightMulMatrix`, `m3gTranslateMatrix`, `m3gScaleMatrix` and
+  `m3gRotateMatrixQuat`, across 18 call sites. The surviving `m3g_math.c`
+  offers only newer `Pre`/`Post`-prefixed forms, so these calls belong to an
+  earlier generation of the same API and are supplied as wrappers. The care
+  here is in the direction of composition: picking pre- where post- is meant
+  still compiles and links, and shows up only as geometry in the wrong place.
+
 ## Out of scope
 
 - **JSR-239** (OpenGL ES bindings for J2ME) — different API, almost no J2ME game

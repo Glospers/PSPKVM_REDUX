@@ -15,15 +15,27 @@ the work is a porting problem, not a performance one.
 
 ## Status
 
-Early. Phase 0 (a reproducible build of stock PSPKVM) is the current focus.
+The runtime boots, installs a MIDlet from the memory stick and runs it, and the
+M3G classes load. Work is now on the 3D engine itself.
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| 0 | Reproducible build of unmodified PSPKVM (Docker + CI) | Pipeline authored; first build pending |
-| 1 | `javax.microedition.m3g` classes + native stubs; reconstruct `M3G/m3g_core.h` | Not started |
-| 2 | Wire in the backend-agnostic core of Nokia's M3G engine | Not started |
+| 0 | Reproducible build of unmodified PSPKVM (Docker + CI) | Done — boots to the app manager; installs, runs and removes MIDlets |
+| 1 | `javax.microedition.m3g` classes + native stubs; reconstruct `M3G/m3g_core.h` | Done — classes load; the header is reconstructed and verified |
+| 2 | Wire in the backend-agnostic core of Nokia's M3G engine | In progress — `.m3g` loader first |
 | 3 | GL ES 1.x → `sceGu` rendering shim | Not started |
 | 4 | Per-game compatibility pass | Not started |
+
+Deep 3D Submarine Odyssey installs and runs as far as its own loading screen,
+which is where scene loading begins. Sound is off by default: `Mix_OpenAudio()`
+in the prebuilt SDL_mixer faults during MIDI setup, so audio initialisation is
+skipped unless `com.pspkvm.audio.enable` is set, and a MIDlet that asks for
+sound runs silently instead of taking the VM down.
+
+Getting there needed a long run of fixes for behaviour that changed in the
+toolchain since 2010 — `lseek`, `fstat`, `access` and `readdir` all misreport on
+the current newlib, so the file and directory layers now call the PSP kernel
+directly.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full plan and the architecture
 decisions, and [docs/INVESTIGATION.md](docs/INVESTIGATION.md) for the build-system
