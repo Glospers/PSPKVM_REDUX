@@ -1,0 +1,62 @@
+--- a/javacall/implementation/psp_mips/common/dir.c
++++ b/javacall/implementation/psp_mips/common/dir.c
+@@ -33,11 +33,47 @@
+ #include "stdlib.h"
+ #include "string.h"
+ #include "dirent.h"
++#include <unistd.h>
++#include <stdio.h>
+ 
+ //#define DEBUG_JAVACALL_DIR 1
+ 
+ extern char* javacall_UNICODEsToUtf8(const javacall_utf16* fileName, int fileNameLen);
+ 
++/* sceIoDopen() is a kernel call and does not resolve paths against the process
++   working directory, so a relative path such as "." or "./appdb" would fail.
++   Build a device-qualified absolute path first (an absolute PSP path carries a
++   device prefix such as "ms0:"). */
++static const char* jc_dir_abspath(const char* in, char* out, int outsz) {
++    char cwd[JAVACALL_MAX_FILE_NAME_LENGTH + 1];
++    const char* rel = in;
++    int len;
++    if (strchr(in, ':') != NULL) {
++        return in;
++    }
++    cwd[0] = 0;
++    if (getcwd(cwd, sizeof(cwd)) == NULL || cwd[0] == 0) {
++        return in;
++    }
++    if (rel[0] == '.' && rel[1] == '/') {
++        rel += 2;
++    } else if (rel[0] == '/') {
++        rel += 1;
++    }
++    if (rel[0] == '.' && rel[1] == 0) {
++        rel += 1;              /* "." means the working directory itself */
++    }
++    len = strlen(cwd);
++    if (rel[0] == 0) {
++        snprintf(out, outsz, "%s", cwd);
++    } else if (len > 0 && cwd[len-1] == '/') {
++        snprintf(out, outsz, "%s%s", cwd, rel);
++    } else {
++        snprintf(out, outsz, "%s/%s", cwd, rel);
++    }
++    return out;
++}
++
+ typedef struct {
+     SceUID handle;
+     javacall_utf16 name[256];
+@@ -65,7 +101,10 @@
+         return NULL;
+     }
+ 
+-    dfd = (SceUID)sceIoDopen(szPath);
++    {
++        char abspath[JAVACALL_MAX_FILE_NAME_LENGTH + 1];
++        dfd = (SceUID)sceIoDopen(jc_dir_abspath(szPath, abspath, sizeof(abspath)));
++    }
+     if (dfd < 0) {
+         return NULL;
+     }

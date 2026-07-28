@@ -1,0 +1,30 @@
+--- a/javacall/implementation/psp_mips/common/file.c
++++ b/javacall/implementation/psp_mips/common/file.c
+@@ -385,6 +385,7 @@
+         return JAVACALL_FAIL;
+     }
+     
++    int status;
+     strcpy(oldfn, pszOldFilename);
+ 
+     char* pszNewFilename = javacall_UNICODEsToUtf8(unicodeNewFilename, newNameLen);
+@@ -392,7 +393,18 @@
+         return JAVACALL_FAIL;
+     }
+ 
+-    int status = sceIoRename(oldfn, pszNewFilename);
++    {
++        char oldabs[JAVACALL_MAX_FILE_NAME_LENGTH + 1];
++        char newabs[JAVACALL_MAX_FILE_NAME_LENGTH + 1];
++        char oldresolved[JAVACALL_MAX_FILE_NAME_LENGTH + 1];
++        const char* oldp = jc_abspath(oldfn, oldabs, sizeof(oldabs));
++        const char* newp;
++        /* jc_abspath() may return its input, and both calls share one scratch
++           buffer, so copy the first result before resolving the second. */
++        snprintf(oldresolved, sizeof(oldresolved), "%s", oldp);
++        newp = jc_abspath(pszNewFilename, newabs, sizeof(newabs));
++        status = sceIoRename(oldresolved, newp);
++    }
+     return (status == 0) ? JAVACALL_OK : JAVACALL_FAIL;
+ 
+ }
