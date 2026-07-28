@@ -70,12 +70,62 @@ find "$SRC" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 rm -f "$SRC"/midp/build/javacall_psp/output/obj/mips/ROMImage.o \
       "$SRC"/midp/build/javacall_psp/output/bin/mips/libmidp.a
 
-# --- 1) phoneME libraries ----------------------------------------------------
-echo ">> [1/2] building phoneME libraries (javacall/pcsl/cldc/midp)"
+# --- 1) libm3g.a (the JSR 184 engine) ---------------------------------------
+# Built from two trees that are kept apart on purpose:
+#
+#   m3g/       ours (this repository): the reconstructed public header, the
+#              platform pieces m3gcore expects a port to supply, the null
+#              GL ES/EGL backend, and the makefile that ties it together.
+#              Arrives with the other components above, so it is at $SRC/m3g.
+#   m3gcore/   the Nokia M3G engine, an upstream drop under a different licence
+#              (EPL-1.0). Like pspkvm it is fetched at a pinned commit and is
+#              never vendored or modified, so it is only ever read from here.
+#
+# Do this before the long phoneME build: a mistake in the engine or a missing
+# m3gcore checkout should be reported in seconds, not twenty minutes in.
+M3G_DIR="$SRC/m3g"
+if [ ! -d "$M3G_DIR/src" ]; then
+  for cand in /work/m3g /m3g; do
+    if [ -d "$cand/src" ]; then
+      echo ">> adding component: m3g (from $cand)"
+      rm -rf "${M3G_DIR:?}"
+      cp -R "$cand" "$M3G_DIR"
+      break
+    fi
+  done
+fi
+
+if [ -z "${M3GCORE_DIR:-}" ]; then
+  for cand in /work/m3gcore /m3gcore "$(dirname "$SRC")/m3gcore"; do
+    if [ -d "$cand/src" ]; then M3GCORE_DIR="$cand"; break; fi
+  done
+fi
+
+if [ ! -d "$M3G_DIR/src" ]; then
+  echo "ERROR: the m3g component is missing. Mount this repository's m3g/ at" >&2
+  echo "       /work/components/m3g (or /m3g)." >&2
+  exit 2
+fi
+if [ -z "${M3GCORE_DIR:-}" ]; then
+  echo "ERROR: m3gcore sources not found. Clone" >&2
+  echo "       https://github.com/toaarnio/m3gcore.git at the pinned commit and" >&2
+  echo "       mount it at /work/m3gcore (or /m3gcore), or set M3GCORE_DIR." >&2
+  exit 2
+fi
+
+echo ">> [1/3] building libm3g.a (m3gcore = $M3GCORE_DIR)"
+make -C "$M3G_DIR" M3GCORE_DIR="$M3GCORE_DIR"
+
+# --- 2) phoneME libraries ----------------------------------------------------
+echo ">> [2/3] building phoneME libraries (javacall/pcsl/cldc/midp)"
 ./build-psp-cldc.sh -J "$JDK_DIR"
 
-# --- 2) link + package EBOOT.PBP --------------------------------------------
-echo ">> [2/2] linking + packaging EBOOT.PBP (BUILD_SLIM=true)"
+# --- 3) link + package EBOOT.PBP --------------------------------------------
+# psp/Makefile picks libm3g.a up from $(ROOT)/m3g/lib and pulls it in with
+# --whole-archive: nothing calls into the engine yet, so an ordinary -lm3g
+# would let the linker discard every object in it and produce a byte-identical
+# EBOOT (see docker/patches/0042-psp-link-m3g.patch).
+echo ">> [3/3] linking + packaging EBOOT.PBP (BUILD_SLIM=true)"
 cd psp
 make BUILD_SLIM=true
 

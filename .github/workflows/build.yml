@@ -12,18 +12,27 @@ env:
   # Pinned pspkvm source commit (vadosnaprimer/pspkvm @ master, 2026-07-23).
   PSPKVM_REPO: https://github.com/vadosnaprimer/pspkvm.git
   PSPKVM_SHA: 15b93ccb82048d4ae12510ef65666bc13c79c252
+  # Pinned m3gcore source commit (the JSR 184 engine; EPL-1.0, kept out of this
+  # repository for the same reason as pspkvm).
+  M3GCORE_REPO: https://github.com/toaarnio/m3gcore.git
+  M3GCORE_SHA: 1b921b3ae476b27d7359083babcbfab81d6e532f
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout pipeline (Dockerfile, build.sh, patches)
+      - name: Checkout pipeline (Dockerfile, build.sh, patches, components)
         uses: actions/checkout@v4
 
       - name: Fetch pinned pspkvm source
         run: |
           git clone --filter=blob:none "$PSPKVM_REPO" src
           git -C src checkout "$PSPKVM_SHA"
+
+      - name: Fetch pinned m3gcore source
+        run: |
+          git clone --filter=blob:none "$M3GCORE_REPO" m3gcore
+          git -C m3gcore checkout "$M3GCORE_SHA"
 
       - name: Build environment image
         run: docker build -t pspkvm-build ./docker
@@ -33,6 +42,9 @@ jobs:
           docker run --rm \
             -v "$PWD/src:/work/pspkvm" \
             -v "$PWD/docker/patches:/work/patches:ro" \
+            -v "$PWD/jsr184:/work/components/jsr184:ro" \
+            -v "$PWD/m3g:/work/components/m3g:ro" \
+            -v "$PWD/m3gcore:/work/m3gcore:ro" \
             pspkvm-build
 
       - name: Upload EBOOT.PBP

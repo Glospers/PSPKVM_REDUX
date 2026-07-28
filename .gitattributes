@@ -15,3 +15,7 @@ Makefile    text eol=lf
 # JSR component sources are compiled inside the Linux container
 *.java  eol=lf
 *.gmk   eol=lf
+
+# So are the M3G native sources
+m3g/**/*.c  eol=lf
+m3g/**/*.h  eol=lf
