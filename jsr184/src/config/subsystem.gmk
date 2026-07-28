@@ -1,0 +1,32 @@
+#
+# JSR 184 (Mobile 3D Graphics) component configuration.
+#
+# This file is included by midp/build/common/makefiles/Subsystems.gmk when
+# USE_JSR_184 is true. It follows the same shape as the other optional JSR
+# components shipped with phoneME (see jsr172/src/config/subsystem.gmk).
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 2 only, as
+# published by the Free Software Foundation.
+#
+######################################################################
+
+# Add to global SUBSYSTEMS list
+SUBSYSTEMS += jsr_184
+
+INTERNAL_JSR_184_CLASSES_DIR = $(JSR_184_DIR)/src/classes
+
+# Javadoc
+SUBSYSTEM_JSR184_SOURCEPATH += $(INTERNAL_JSR_184_CLASSES_DIR)
+SUBSYSTEM_JSR184_PACKAGES    = javax.microedition.m3g
+
+MIDP_JAVADOC_SOURCEPATH += $(SUBSYSTEM_JSR184_SOURCEPATH)
+MIDP_JAVADOC_PACKAGES   += $(SUBSYSTEM_JSR184_PACKAGES)
+
+MIDP_JAVADOC_ALL += \
+	-group "JSR184 Mobile 3D Graphics" \
+	$(shell echo $(SUBSYSTEM_JSR184_PACKAGES) | tr ' ' $(PATHSEP))
+
+# Java files for the ( jsr_184 ) module
+SUBSYSTEM_JSR_184_JAVA_FILES := \
+	$(shell (find $(INTERNAL_JSR_184_CLASSES_DIR) -name '*.java' | egrep -v 'SCCS'))

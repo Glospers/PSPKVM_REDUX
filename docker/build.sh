@@ -43,6 +43,21 @@ fi
 
 cd "$SRC"
 
+# --- our own JSR components --------------------------------------------------
+# The upstream tree is fetched fresh at a pinned commit and is never modified in
+# place, so components we write ourselves live in this repository and are copied
+# in here. JSR 184 (M3G) is delivered this way; the patches above only flip the
+# build switches that reference it.
+COMPONENTS="${PSPKVM_COMPONENTS:-/work/components}"
+if [ -d "$COMPONENTS" ]; then
+  for c in "$COMPONENTS"/*; do
+    [ -d "$c" ] || continue
+    echo ">> adding component: $(basename "$c")"
+    rm -rf "${SRC:?}/$(basename "$c")"
+    cp -R "$c" "$SRC/"
+  done
+fi
+
 # The upstream shell scripts can arrive without the executable bit (depending on
 # how the source tree was checked out / mounted). Restore it before we invoke
 # them, or the first `./build-psp-cldc.sh` fails with exit 126 (Permission denied).

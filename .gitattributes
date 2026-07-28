@@ -11,3 +11,7 @@ Makefile    text eol=lf
 # Patches are byte-sensitive; never let Git touch their endings.
 *.patch     -text
 *.diff      -text
+
+# JSR component sources are compiled inside the Linux container
+*.java  eol=lf
+*.gmk   eol=lf

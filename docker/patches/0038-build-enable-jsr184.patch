@@ -1,0 +1,27 @@
+--- a/build-psp-cldc.sh
++++ b/build-psp-cldc.sh
+@@ -31,6 +31,7 @@
+ USE_JSR_179=true
+ USE_JSR_172=true
+ USE_JSR_226=true
++USE_JSR_184=true
+ 
+ while getopts \?J:Ccdehjmnpr: c
+ do
+@@ -88,6 +89,7 @@
+ JSR_179_DIR=${WS_ROOT}/jsr179
+ JSR_172_DIR=${WS_ROOT}/jsr172
+ JSR_226_DIR=${WS_ROOT}/jsr226
++JSR_184_DIR=${WS_ROOT}/jsr184
+ PISCES_DIR=${WS_ROOT}/pisces
+ PSPDEV_GNU_TOOLS_DIR=`psp-config -P`
+ #PSPDEV_GNU_TOOLS_DIR=
+@@ -204,6 +206,8 @@
+ 			USE_JSR_172=${USE_JSR_172} \
+ 			USE_JSR_226=${USE_JSR_226} \
+ 			JSR_226_DIR=${JSR_226_DIR} \
++			USE_JSR_184=${USE_JSR_184} \
++			JSR_184_DIR=${JSR_184_DIR} \
+ 			PISCES_DIR=${PISCES_DIR} \
+ 			${DEBUG_OPTION}
+ 		if [ $? != 0 ];then
