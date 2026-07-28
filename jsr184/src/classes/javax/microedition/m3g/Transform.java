@@ -43,6 +43,18 @@ public class Transform {
         System.arraycopy(transform.m, 0, m, 0, 16);
     }
 
+    /**
+     * The backing array, row-major, without a copy.
+     *
+     * Package private and read-only by convention: it exists so that
+     * {@link Graphics3D} can hand a matrix to the native side without
+     * allocating a temporary on every frame. The KNI layer copies out of it
+     * immediately (jsr184/src/native/m3g_graphics3d_kni.c).
+     */
+    float[] rows() {
+        return m;
+    }
+
     public void get(float[] matrix) {
         if (matrix == null) {
             throw new NullPointerException();

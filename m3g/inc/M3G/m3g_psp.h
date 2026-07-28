@@ -46,6 +46,12 @@ extern "C" {
 #define M3G_PSP_ERR_OUT_OF_MEMORY (-3)  /* engine reported OOM            */
 #define M3G_PSP_ERR_IO            (-4)  /* malformed or truncated file    */
 #define M3G_PSP_ERR_UNSUPPORTED   (-5)  /* PNG identifier, or no roots    */
+#define M3G_PSP_ERR_RENDER        (-6)  /* engine refused a draw call     */
+#define M3G_PSP_ERR_BOUND         (-7)  /* a target is already bound      */
+#define M3G_PSP_ERR_NOT_BOUND     (-8)  /* no target bound                */
+
+/*! \brief The success code of the rendering entry points below. */
+#define M3G_PSP_RENDER_OK         0
 
 /*!
  * \brief The process-wide M3G interface, created on first use.
@@ -95,6 +101,115 @@ void m3gPspFreeRootArray(M3GObject *objects);
 
 /*! \brief m3gGetClass, but tolerant of a NULL handle (returns -1). */
 M3Gint m3gPspGetClassID(M3GObject object);
+
+/*----------------------------------------------------------------------
+ * Rendering (src/m3g_psp_render.c)
+ *
+ * The counterpart of the loader entry points above: the sequence m3gcore
+ * expects around a frame, written once so the KNI natives behind
+ * javax.microedition.m3g.Graphics3D stay pure marshalling.
+ *
+ * The target is always a *memory* target -- MIDP's 16-bit screen buffer --
+ * because PSPKVM owns the scanout and blits that buffer itself every flush.
+ * m3gcore renders into an offscreen pbuffer and reads back with glReadPixels,
+ * so the 3D composes underneath whatever 2D the MIDlet draws afterwards.
+ * See the header comment of src/m3g_psp_render.c.
+ *
+ * Every entry point returns M3G_PSP_RENDER_OK or one of the M3G_PSP_ERR_*
+ * codes above, except where noted.
+ *--------------------------------------------------------------------*/
+
+/*!
+ * \brief The process-wide rendering context, created on first use.
+ *
+ * \return the context, or NULL if it or the interface could not be created
+ */
+M3GRenderContext m3gPspGetContext(void);
+
+/*!
+ * \brief Binds a 16-bit RGB565 pixel buffer as the rendering target.
+ *
+ * \param pixels      first pixel, top-left
+ * \param width       target width in pixels
+ * \param height      target height in pixels
+ * \param strideBytes distance between scanlines, >= width * 2
+ * \param depthBuffer non-zero to request a depth buffer
+ * \param hints       the JSR-184 Graphics3D hint bits, which are the same
+ *                    values as the engine's mode bits
+ */
+M3Gint m3gPspBindMemoryTarget(void *pixels,
+                              M3Gint width, M3Gint height,
+                              M3Gint strideBytes,
+                              M3Gint depthBuffer,
+                              M3Gint hints);
+
+/*!
+ * \brief Releases the target, reading the rendered frame back into it.
+ *
+ * Nothing is written into the caller's buffer until this is called.
+ */
+M3Gint m3gPspReleaseTarget(void);
+
+/*! \brief Non-zero while a target is bound. */
+M3Gint m3gPspIsBound(void);
+
+/*! \brief Collects and clears the engine's error code. */
+M3Gint m3gPspTakeError(void);
+
+void   m3gPspSetViewport(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
+void   m3gPspSetClipRect(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
+void   m3gPspSetDepthRange(M3Gfloat depthNear, M3Gfloat depthFar);
+
+/*! \brief Clears the viewport; \a background may be NULL. */
+M3Gint m3gPspClear(M3GObject background);
+
+/*!
+ * \brief Renders a World with its own active camera, lights and background.
+ *
+ * This needs nothing from the Java side but the handle: the engine holds the
+ * whole scene graph internally.
+ */
+M3Gint m3gPspRenderWorld(M3GObject world);
+
+/*! \brief Renders a subtree; \a transform is 16 floats row-major, or NULL. */
+M3Gint m3gPspRenderNode(M3GObject node, const M3Gfloat *transform);
+
+/*! \brief Immediate-mode submission; \a appearance may be NULL. */
+M3Gint m3gPspRenderImmediate(M3GObject vertices,
+                             M3GObject triangles,
+                             M3GObject appearance,
+                             const M3Gfloat *transform,
+                             M3Gint scope);
+
+/*! \brief Sets the camera; \a camera may be NULL to unset it. */
+M3Gint m3gPspSetCamera(M3GObject camera, const M3Gfloat *transform);
+
+/*! \brief Adds a light; returns its index (>= 0) or an M3G_PSP_ERR_* code. */
+M3Gint m3gPspAddLight(M3GObject light, const M3Gfloat *transform);
+
+void   m3gPspClearLights(void);
+
+/*----------------------------------------------------------------------
+ * Video memory (src/m3g_psp_vidmem.c)
+ *--------------------------------------------------------------------*/
+
+/*!
+ * \brief Reserves edram so pspgl cannot allocate over PSPKVM's frame buffers.
+ *
+ * By default it reserves all of it, which also keeps pspgl off its own
+ * eviction path -- that path emits GE commands through a context that is not
+ * current yet during target binding, and faults.  Override with
+ * -DM3G_PSP_VRAM_RESERVE_KB=<n>, but read the note at the top of
+ * src/m3g_psp_vidmem.c first; the value is clamped up to PSPKVM's high-water
+ * mark and down to the size of edram either way.
+ *
+ * Idempotent, and called from m3gPspGetInterface before anything can touch
+ * EGL.  Returns 1 if the reservation is held, -1 if pspgl refused it.
+ */
+M3Gint m3gPspReserveVram(void);
+
+/*! \brief Bytes of edram reserved for PSPKVM, or 0 if the reservation failed. */
+M3Gint m3gPspGetReservedVram(void);
 
 /*----------------------------------------------------------------------
  * The engine's private heap

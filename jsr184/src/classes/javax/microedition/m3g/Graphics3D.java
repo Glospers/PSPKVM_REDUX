@@ -10,10 +10,18 @@ import java.util.Hashtable;
 /**
  * The singleton 3D graphics context.
  *
- * Phase 1: state is tracked faithfully (target, viewport, camera, lights) but
- * nothing is drawn yet, so a MIDlet that renders sees an empty viewport rather
- * than failing to load. The render paths are where the m3gcore backend gets
- * attached in the next phase.
+ * Drawing goes through m3gcore, which on this platform renders with pspgl into
+ * an offscreen buffer and reads the result back into MIDP's 16-bit screen
+ * buffer -- the same pixels the lcdui Graphics draws into, so 3D composes
+ * underneath any 2D the MIDlet paints afterwards, and PSPKVM's existing blit
+ * puts the result on screen unchanged. The details are in
+ * jsr184/src/native/m3g_graphics3d_kni.c and m3g/src/m3g_psp_render.c.
+ *
+ * The Java state below is still tracked in full, for two reasons: the getters
+ * are part of the API and have to answer, and if the native side cannot bind a
+ * target (no screen buffer, out of memory) the class degrades to the state
+ * machine it used to be rather than throwing at a MIDlet that has no way to
+ * recover.
  */
 public final class Graphics3D {
 
@@ -22,11 +30,17 @@ public final class Graphics3D {
     public static final int TRUE_COLOR = 8;
     public static final int OVERWRITE  = 16;
 
+    /** Every hint the JSR-184 API defines; anything else is rejected. */
+    private static final int VALID_HINTS = ANTIALIAS | DITHER | TRUE_COLOR | OVERWRITE;
+
     private static Graphics3D instance;
 
     private Object target;
     private boolean depthBufferEnabled = true;
     private int hints;
+
+    /** True while the engine holds a rendering target, i.e. drawing works. */
+    private boolean nativeBound;
 
     private int viewportX, viewportY;
     private int viewportWidth  = 1;
@@ -64,23 +78,63 @@ public final class Graphics3D {
         if (this.target != null) {
             throw new IllegalStateException("target already bound");
         }
+        if ((hints & ~VALID_HINTS) != 0) {
+            throw new IllegalArgumentException("unknown rendering hint");
+        }
+
         this.target = target;
         this.depthBufferEnabled = depthBuffer;
         this.hints = hints;
 
-        if (target instanceof javax.microedition.lcdui.Graphics) {
+        // The engine always draws into MIDP's screen buffer, whatever kind of
+        // target the MIDlet named; the size it reports back is the size of
+        // that buffer, which is also the default viewport.
+        int size = nBind(hints, depthBuffer ? 1 : 0);
+        if (size > 0) {
+            nativeBound = true;
+            viewportWidth  = size >>> 16;
+            viewportHeight = size & 0xFFFF;
+            nSetViewport(0, 0, viewportWidth, viewportHeight);
+            nSetDepthRange(0.0f, 1.0f);
+            // The camera and the lights are Graphics3D state, not target
+            // state: the specification lets a MIDlet set them once and bind a
+            // target per frame, and several do. The engine, though, keeps them
+            // on the rendering context, and m3gRenderNode refuses to draw
+            // anything at all while that context has no camera
+            // (m3gcore/src/m3g_rendercontext.c:1812). So push whatever was set
+            // while unbound through now.
+            applyCamera();
+            applyLights();
+        } else {
+            nativeBound = false;
+            viewportWidth  = 1;
+            viewportHeight = 1;
+        }
+        viewportX = 0;
+        viewportY = 0;
+        depthRangeNear = 0.0f;
+        depthRangeFar  = 1.0f;
+
+        // Honour the Graphics clip so that 3D drawn into a clipped context
+        // stays inside it. MIDP clip coordinates are relative to the current
+        // translation; the target buffer is not.
+        if (nativeBound && target instanceof javax.microedition.lcdui.Graphics) {
             javax.microedition.lcdui.Graphics g =
                 (javax.microedition.lcdui.Graphics) target;
-            viewportX = 0;
-            viewportY = 0;
-            viewportWidth  = g.getClipWidth();
-            viewportHeight = g.getClipHeight();
+            int cw = g.getClipWidth();
+            int ch = g.getClipHeight();
+            if (cw > 0 && ch > 0) {
+                nSetClipRect(g.getTranslateX() + g.getClipX(),
+                             g.getTranslateY() + g.getClipY(), cw, ch);
+            }
         }
-        if (viewportWidth  <= 0) { viewportWidth  = 1; }
-        if (viewportHeight <= 0) { viewportHeight = 1; }
     }
 
     public void releaseTarget() {
+        if (nativeBound) {
+            nRelease();
+            nativeBound = false;
+        }
         target = null;
     }
 
@@ -96,6 +150,9 @@ public final class Graphics3D {
         viewportY = y;
         viewportWidth = width;
         viewportHeight = height;
+        if (nativeBound) {
+            nSetViewport(x, y, width, height);
+        }
     }
 
     public int getViewportX()      { return viewportX; }
@@ -109,24 +166,42 @@ public final class Graphics3D {
         }
         depthRangeNear = near;
         depthRangeFar = far;
+        if (nativeBound) {
+            nSetDepthRange(near, far);
+        }
     }
 
     public float getDepthRangeNear() { return depthRangeNear; }
     public float getDepthRangeFar()  { return depthRangeFar; }
 
     public void clear(Background background) {
-        // Nothing is rasterised yet.
+        checkBound();
+        if (nativeBound) {
+            nClear(background != null ? background.handle : 0);
+        }
     }
 
     public void render(World world) {
         if (world == null) {
             throw new NullPointerException();
         }
+        checkBound();
+        if (nativeBound) {
+            // The handle is enough: the engine holds the scene graph, the
+            // active camera, the lights and the background internally, so
+            // nothing has to be walked on the Java side.
+            nRenderWorld(world.handle);
+        }
     }
 
     public void render(Node node, Transform transform) {
         if (node == null) {
             throw new NullPointerException();
+        }
+        checkBound();
+        if (nativeBound) {
+            nRenderNode(node.handle,
+                        transform != null ? transform.rows() : null);
         }
     }
 
@@ -140,12 +215,45 @@ public final class Graphics3D {
         if (vertices == null || triangles == null || appearance == null) {
             throw new NullPointerException();
         }
+        checkBound();
+        if (nativeBound) {
+            // Works for geometry that came out of Loader; geometry a MIDlet
+            // builds with the public constructors has no engine object behind
+            // it yet, and the native side traces that rather than dropping it
+            // silently.
+            nRenderImmediate(vertices.handle, triangles.handle,
+                             appearance.handle,
+                             transform != null ? transform.rows() : null,
+                             scope);
+        }
     }
 
     public void setCamera(Camera camera, Transform transform) {
         this.camera = camera;
         this.cameraTransform = (transform != null)
             ? new Transform(transform) : new Transform();
+        applyCamera();
+    }
+
+    private void applyCamera() {
+        if (nativeBound) {
+            nSetCamera(camera != null ? camera.handle : 0,
+                       camera != null ? cameraTransform.rows() : null);
+        }
+    }
+
+    private void applyLights() {
+        if (!nativeBound) {
+            return;
+        }
+        nClearLights();
+        for (int i = 0; i < lightCount; i++) {
+            if (lights[i] != null) {
+                nAddLight(lights[i].handle,
+                          lightTransforms[i] != null
+                              ? lightTransforms[i].rows() : null);
+            }
+        }
     }
 
     public Camera getCamera(Transform transform) {
@@ -166,6 +274,9 @@ public final class Graphics3D {
         lights[index] = light;
         lightTransforms[index] = (transform != null)
             ? new Transform(transform) : new Transform();
+        if (nativeBound) {
+            nAddLight(light.handle, lightTransforms[index].rows());
+        }
         return index;
     }
 
@@ -176,6 +287,7 @@ public final class Graphics3D {
         lights[index] = light;
         lightTransforms[index] = (transform != null)
             ? new Transform(transform) : new Transform();
+        applyLights();
     }
 
     public void resetLights() {
@@ -184,6 +296,9 @@ public final class Graphics3D {
             lightTransforms[i] = null;
         }
         lightCount = 0;
+        if (nativeBound) {
+            nClearLights();
+        }
     }
 
     public int getLightCount() {
@@ -214,7 +329,7 @@ public final class Graphics3D {
         p.put("supportTrueColor",          Boolean.FALSE);
         p.put("supportDithering",          Boolean.FALSE);
         p.put("supportMipmapping",         Boolean.FALSE);
-        p.put("supportPerspectiveCorrection", Boolean.FALSE);
+        p.put("supportPerspectiveCorrection", Boolean.TRUE);
         p.put("supportLocalCameraLighting",   Boolean.FALSE);
         p.put("maxLights",                 new Integer(MAX_LIGHTS));
         p.put("maxViewportWidth",          new Integer(1024));
@@ -226,4 +341,34 @@ public final class Graphics3D {
         p.put("numTextureUnits",           new Integer(1));
         return p;
     }
+
+    private void checkBound() {
+        if (target == null) {
+            throw new IllegalStateException("no target bound");
+        }
+    }
+
+    /*
+     * Natives. Statically bound by name -- the romizer writes the mangled
+     * symbol straight into ROMImage.cpp, so the C side in
+     * jsr184/src/native/m3g_graphics3d_kni.c only has to spell these the same
+     * way. They are static so that KNI parameter index 1 is the first
+     * argument, matching the Loader natives.
+     */
+
+    /** @return (width &lt;&lt; 16) | height, or a negative failure code. */
+    private static native int nBind(int hints, int depthBuffer);
+    private static native int nRelease();
+    private static native void nSetViewport(int x, int y, int width, int height);
+    private static native void nSetClipRect(int x, int y, int width, int height);
+    private static native void nSetDepthRange(float near, float far);
+    private static native int nClear(int backgroundHandle);
+    private static native int nRenderWorld(int worldHandle);
+    private static native int nRenderNode(int nodeHandle, float[] transform);
+    private static native int nRenderImmediate(int vertices, int triangles,
+                                               int appearance,
+                                               float[] transform, int scope);
+    private static native int nSetCamera(int cameraHandle, float[] transform);
+    private static native int nAddLight(int lightHandle, float[] transform);
+    private static native void nClearLights();
 }

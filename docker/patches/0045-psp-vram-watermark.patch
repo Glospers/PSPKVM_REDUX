@@ -1,0 +1,37 @@
+diff --git a/psp/vram.c b/psp/vram.c
+index a2fda08..9bbbf1f 100644
+--- a/psp/vram.c
++++ b/psp/vram.c
+@@ -39,6 +39,11 @@ void* getStaticVramBuffer(unsigned int width, unsigned int height, unsigned int
+ 	return result;
+ }
+ 
++unsigned int getStaticVramUsed(void)
++{
++	return staticOffset;
++}
++
+ void* getStaticVramTexture(unsigned int width, unsigned int height, unsigned int psm)
+ {
+ 	void* result = getStaticVramBuffer(width,height,psm);
+diff --git a/psp/vram.h b/psp/vram.h
+index f051e85..47a5613 100644
+--- a/psp/vram.h
++++ b/psp/vram.h
+@@ -12,6 +12,16 @@ extern "C" {
+ 
+ /* make a static allocation of vram memory and return pointer relative to vram start */
+ void* getStaticVramBuffer(unsigned int width, unsigned int height, unsigned int psm);
++/* bytes of edram handed out by getStaticVramBuffer so far.
++
++   Everything above this is unclaimed.  The M3G backend needs the figure
++   because pspgl (libGL.a) carries a video memory allocator of its own that
++   also starts at edram offset 0 and knows nothing about this one.  It reserves
++   [0, this) through pspgl's own allocator before creating any surface, which
++   stops the two handing out the same addresses -- see
++   m3g/src/m3g_psp_vidmem.c. */
++unsigned int getStaticVramUsed(void);
++
+ /* make a static allocation of vram memory and return absolute pointer */
+ void* getStaticVramTexture(unsigned int width, unsigned int height, unsigned int psm);
+ 

@@ -19,11 +19,16 @@
 #      malloc'd block inside it, so engine blocks would sit against VM memory.
 #      Pass M3G_PSP_ARENA_KB=<n> to resize that heap.
 #
-#   3. src/stub/, a no-op OpenGL ES 1.1 + EGL backend.  m3gcore renders only
-#      through GL ES (the software path is #error'd out at
-#      src/m3g_rendercontext.inl:25) and the PSP has no GL ES, so these exist
-#      to make the ELF link while the engine is being brought up.  They are
-#      replaced wholesale by the sceGu backend later; nothing else changes.
+#   3. the OpenGL ES 1.x backend.  m3gcore renders only through GL ES (the
+#      software path is #error'd out at src/m3g_rendercontext.inl:25), and on
+#      the PSP that is pspgl -- libGL.a, BSD-3-Clause, already in the pspdev
+#      toolchain, driving the GE through its own display lists rather than
+#      libpspgu.  It covers all but sixteen of the entry points m3gcore uses;
+#      src/m3g_psp_gl.c and src/m3g_psp_egl.c supply those, src/m3g_psp_native.c
+#      refuses the native bitmap/window hooks the PSP has no handle space for,
+#      and src/m3g_psp_vidmem.c keeps pspgl's video memory allocator out of the
+#      edram PSPKVM already owns.  The -lGL itself is added at the ELF link by
+#      docker/patches/0044.
 #
 # Usage (driven from docker/build.sh):
 #
@@ -92,8 +97,21 @@ INCLUDES    := -I$(M3G_DIR)/inc -I$(M3GCORE_DIR)/inc -I$(M3GCORE_DIR)/src
 #
 # The -D on the second line renames that hook so the symbol in the PSP ELF is
 # named after the platform it actually runs on.
+#
+# M3G_FORCE_BUFFERED_RENDERING is the engine's own switch (checked at
+# src/m3g_rendercontext.c:583) for "never render straight at the target".  It
+# is mandatory here.  The target is always a memory target -- MIDP's 16-bit
+# screen buffer, see src/m3g_psp_render.c -- and m3gValidateBuffers otherwise
+# decides between direct and buffered rendering by asking EGL whether the
+# format is renderable (m3gCanDirectRender, src/m3g_rendercontext.inl:746).
+# pspgl's eglChooseConfig ignores EGL_SURFACE_TYPE, so it answers yes for a
+# memory target -- for which m3gSelectGLSurface has no case at all (:1296,
+# default: assert and return NULL).  Forcing the buffered path takes the
+# decision away from EGL and is what makes the pbuffer + glReadPixels route
+# run.
 DEFINES     := -DM3G_TARGET_SYMBIAN \
-               -Dm3gSymbianInflateBlock=m3gPspInflateBlock
+               -Dm3gSymbianInflateBlock=m3gPspInflateBlock \
+               -DM3G_FORCE_BUFFERED_RENDERING
 
 # Size of the engine's private heap (src/m3g_psp_arena.c).  Left unset the
 # source picks its own default; override on the command line to retune after
@@ -107,9 +125,11 @@ OBJS        := $(OBJDIR)/m3g_core.o \
                $(OBJDIR)/m3g_inflate.o \
                $(OBJDIR)/m3g_psp_arena.o \
                $(OBJDIR)/m3g_psp_loader.o \
-               $(OBJDIR)/m3g_gl_stub.o \
-               $(OBJDIR)/m3g_egl_stub.o \
-               $(OBJDIR)/m3g_native_stub.o
+               $(OBJDIR)/m3g_psp_render.o \
+               $(OBJDIR)/m3g_psp_vidmem.o \
+               $(OBJDIR)/m3g_psp_gl.o \
+               $(OBJDIR)/m3g_psp_egl.o \
+               $(OBJDIR)/m3g_psp_native.o
 
 .PHONY: all clean
 
@@ -126,12 +146,12 @@ $(TARGET): $(OBJS) | $(LIBOUTDIR)
 $(OBJDIR)/m3g_core.o: $(M3GCORE_DIR)/src/m3g_core.c | $(OBJDIR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
 
-# 2. platform pieces m3gcore expects but does not ship
+# 2. the platform pieces m3gcore expects but does not ship, and 3. the pspgl
+#    backend.  Both compile against m3g/inc, i.e. against the same GLES/EGL
+#    headers m3gcore sees rather than pspgl's -- the typedefs are all 32 bits
+#    either way, so the o32 ABI is identical, and it keeps pspgl's <GLES/egl.h>
+#    (which shares our include guard, __egl_h_) from ever meeting ours.
 $(OBJDIR)/%.o: $(M3G_DIR)/src/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
-
-# 3. the null GL ES / EGL backend
-$(OBJDIR)/%.o: $(M3G_DIR)/src/stub/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
 
 $(OBJDIR) $(LIBOUTDIR):

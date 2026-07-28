@@ -42,6 +42,14 @@ M3GInterface m3gPspGetInterface(void)
     if (s_interface == NULL) {
         M3Gparams params;
 
+        /* Before anything else: m3gCreateInterface brings GL up to read the
+         * driver's limits (src/m3g_interface.c:1679 -> m3gConfigureGL), and
+         * that creates a pbuffer -- pspgl's first video memory allocation.
+         * Its allocator starts at edram + 0, which is where PSPKVM's frame
+         * buffers already are, so the region has to be spoken for first.
+         * See src/m3g_psp_vidmem.c. */
+        m3gPspReserveVram();
+
         /* Zero first: M3Gparams has nine members and only two of them are
          * mandatory (src/m3g_interface.c:1597-1604); the rest must be NULL,
          * not garbage, or m3gCreateInterface will happily install a stack
