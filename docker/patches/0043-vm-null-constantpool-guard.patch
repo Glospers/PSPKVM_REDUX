@@ -1,0 +1,83 @@
+diff --git a/cldc/src/vm/share/interpreter/InterpreterRuntime.cpp b/cldc/src/vm/share/interpreter/InterpreterRuntime.cpp
+index 527cfae..619dcc0 100644
+--- a/cldc/src/vm/share/interpreter/InterpreterRuntime.cpp
++++ b/cldc/src/vm/share/interpreter/InterpreterRuntime.cpp
+@@ -32,6 +32,11 @@ extern "C" {
+   extern jlong bailout_counters[Bytecodes::number_of_java_codes];
+ }
+ 
++/* Target-only diagnostic sink (javacall). Declared weak so the romgen host
++ * tool, which builds these same sources without javacall, still links;
++ * there it resolves to 0 and the call is skipped. */
++extern "C" void javacall_diag_log(const char* s) __attribute__((weak));
++
+ extern "C" {
+ 
+ #if ENABLE_ISOLATES
+@@ -302,6 +307,26 @@ extern "C" {
+     jushort klass_index  = method().ushort_at(bci + 1);
+     int length = frame.expression_at(0)->as_int();
+     ConstantPool::Fast cp = method().constants();
++    if (cp.is_null()) {
++      /* A null constant pool here is always corrupt VM state, never a
++       * missing class and never a missing array class: every ROMized
++       * method carries JVM_ACC_HAS_COMPRESSED_HEADER and so answers
++       * _rom_constant_pool (Method.cpp:168), and every heap method is
++       * given its holder's pool by ClassFileParser. Falling through reads
++       * a halfword at address 4 inside ConstantPool::klass_at (its
++       * length() bounds check) -- an unrecoverable crash that names
++       * nothing. Report the frame and raise instead. */
++      char _npcp_msg[160];
++      jvm_sprintf(_npcp_msg,
++                  "VM: anewarray with null constant pool "
++                  "(method=0x%08x holder_id=%d bci=%d cp_index=%d n=%d)\n",
++                  (int)(address)method().obj(), (int)method().holder_id(),
++                  (int)bci, (int)klass_index, (int)length);
++      if (javacall_diag_log != 0) {
++        javacall_diag_log(_npcp_msg);
++      }
++      Throw::error(invalid_constant JVM_THROW_0);
++    }
+     JavaClass::Fast klass = cp().klass_at(klass_index JVM_CHECK_0);
+ 
+     InstanceClass::Fast sender_class = method().holder();
+diff --git a/javacall/implementation/psp_mips/common/logging.c b/javacall/implementation/psp_mips/common/logging.c
+index 8cd50f0..12f3b21 100644
+--- a/javacall/implementation/psp_mips/common/logging.c
++++ b/javacall/implementation/psp_mips/common/logging.c
+@@ -28,6 +28,9 @@
+ #include <string.h>
+ #include <stdarg.h>
+ 
++#include <pspiofilemgr.h>
++#include <pspiofilemgr_fcntl.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -51,6 +54,25 @@ void javacall_print(const char *s) {
+ 
+ }
+ 
++/**
++ * Appends one line to ms0:/pspkvm_vm.log.
++ *
++ * javacall_print() only reaches a channel that javacall_logging_channel()
++ * has switched on, and every channel above defaults to off, so it is not a
++ * usable sink for a report that has to survive a VM-level failure. This one
++ * opens, writes and closes per call and appends, so the last line written
++ * is always on the memory stick even if the VM dies immediately after it.
++ * Only fatal paths call it, so the cost does not matter.
++ */
++void javacall_diag_log(const char *s) {
++    int fd = sceIoOpen("ms0:/pspkvm_vm.log",
++                       PSP_O_WRONLY | PSP_O_CREAT | PSP_O_APPEND, 0777);
++    if (fd >= 0) {
++        sceIoWrite(fd, s, strlen(s));
++        sceIoClose(fd);
++    }
++}
++
+ void javacall_printf (const char* format, ...) {
+ #define log_buf_size 65536
+   static char logs[log_buf_size]={0};
