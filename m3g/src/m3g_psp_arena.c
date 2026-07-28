@@ -81,8 +81,19 @@
  * the KNI layer after every load, so this number can be tuned against real
  * hardware behaviour rather than left to guesswork.
  */
+/*
+ * Sized from a measured run rather than guessed: loading the test title's
+ * scenes peaks at about 120 KB, so this leaves roughly three times headroom.
+ *
+ * Do not raise this casually. It is reserved in .bss, so it comes off the
+ * largest free block at module load, and the VM asks for a fixed 32 MB heap
+ * afterwards. An earlier 1536 KB arena left that request unsatisfiable and the
+ * runtime hung on the splash screen before the VM ever started. If a title
+ * needs more, the load line in ms0:/pspkvm_vm.log reports fail= and peak=, so
+ * raise it against evidence and re-check that the runtime still boots.
+ */
 #ifndef M3G_PSP_ARENA_KB
-#define M3G_PSP_ARENA_KB 1536
+#define M3G_PSP_ARENA_KB 384
 #endif
 
 #define ARENA_BYTES ((M3Guint) (M3G_PSP_ARENA_KB) * 1024u)
