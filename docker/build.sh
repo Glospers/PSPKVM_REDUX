@@ -63,6 +63,13 @@ fi
 # them, or the first `./build-psp-cldc.sh` fails with exit 126 (Permission denied).
 find "$SRC" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 
+# The romized class image is regenerated whenever the Java sources change, but
+# the object built from it is not reliably rebuilt, so a stale ROMImage.o and
+# libmidp.a can be linked and the resulting EBOOT is byte-for-byte identical to
+# the previous one. Drop both so the class image always reaches the binary.
+rm -f "$SRC"/midp/build/javacall_psp/output/obj/mips/ROMImage.o \
+      "$SRC"/midp/build/javacall_psp/output/bin/mips/libmidp.a
+
 # --- 1) phoneME libraries ----------------------------------------------------
 echo ">> [1/2] building phoneME libraries (javacall/pcsl/cldc/midp)"
 ./build-psp-cldc.sh -J "$JDK_DIR"
