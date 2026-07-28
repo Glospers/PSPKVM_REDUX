@@ -17,14 +17,23 @@ public class SkinnedMesh extends Mesh {
 
     public SkinnedMesh(VertexBuffer vertices, IndexBuffer submesh,
                        Appearance appearance, Group skeleton) {
-        super(vertices, submesh, appearance);
-        initSkeleton(skeleton);
+        this(vertices,
+             new IndexBuffer[] { submesh },
+             new Appearance[] { appearance },
+             skeleton);
     }
 
     public SkinnedMesh(VertexBuffer vertices, IndexBuffer[] submeshes,
                        Appearance[] appearances, Group skeleton) {
-        super(vertices, submeshes, appearances);
+        /* false: a SkinnedMesh is not an M3GMesh, so the base class must not
+         * create one -- see Mesh(VertexBuffer, IndexBuffer[], Appearance[],
+         * boolean). */
+        super(vertices, submeshes, appearances, false);
         initSkeleton(skeleton);
+        handle = nCreate(vertices.handle,
+                         handles(submeshes),
+                         handles(getAppearances()),
+                         skeleton.handle);
     }
 
     private void initSkeleton(Group skeleton) {
@@ -49,6 +58,9 @@ public class SkinnedMesh extends Mesh {
         if (weight <= 0 || numVertices <= 0) {
             throw new IllegalArgumentException("weight and count must be > 0");
         }
+        if (handle != 0 && bone.handle != 0) {
+            nAddTransform(handle, bone.handle, weight, firstVertex, numVertices);
+        }
     }
 
     public void getBoneTransform(Node bone, Transform transform) {
@@ -61,4 +73,11 @@ public class SkinnedMesh extends Mesh {
     public int getBoneVertices(Node bone, int[] indices, float[] weights) {
         return 0;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate(int vertices, int[] submeshes,
+                                      int[] appearances, int skeleton);
+    private static native void nAddTransform(int handle, int bone, int weight,
+                                             int firstVertex, int numVertices);
 }

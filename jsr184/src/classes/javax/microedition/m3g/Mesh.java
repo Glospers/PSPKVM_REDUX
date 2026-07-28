@@ -14,16 +14,29 @@ public class Mesh extends Node {
 
     public Mesh(VertexBuffer vertices, IndexBuffer submesh,
                 Appearance appearance) {
-        if (vertices == null || submesh == null) {
-            throw new NullPointerException();
-        }
-        this.vertexBuffer = vertices;
-        this.submeshes = new IndexBuffer[] { submesh };
-        this.appearances = new Appearance[] { appearance };
+        this(vertices,
+             new IndexBuffer[] { submesh },
+             new Appearance[] { appearance },
+             true);
     }
 
     public Mesh(VertexBuffer vertices, IndexBuffer[] submeshes,
                 Appearance[] appearances) {
+        this(vertices, submeshes, appearances, true);
+    }
+
+    Mesh() {
+    }
+
+    /**
+     * The shared part of the two public constructors.
+     *
+     * MorphingMesh and SkinnedMesh are Meshes in Java but not in the engine --
+     * each has its own m3gCreate* -- so they run the Java-side setup with
+     * <code>createEngineObject</code> false and then build their own.
+     */
+    Mesh(VertexBuffer vertices, IndexBuffer[] submeshes,
+         Appearance[] appearances, boolean createEngineObject) {
         if (vertices == null || submeshes == null) {
             throw new NullPointerException();
         }
@@ -31,13 +44,26 @@ public class Mesh extends Node {
                 || (appearances != null && appearances.length < submeshes.length)) {
             throw new IllegalArgumentException("submesh/appearance mismatch");
         }
+        for (int i = 0; i < submeshes.length; i++) {
+            if (submeshes[i] == null) {
+                throw new NullPointerException();
+            }
+        }
         this.vertexBuffer = vertices;
         this.submeshes = submeshes;
         this.appearances = (appearances != null)
             ? appearances : new Appearance[submeshes.length];
+
+        if (createEngineObject) {
+            handle = nCreate(vertices.handle,
+                             handles(submeshes),
+                             handles(this.appearances));
+        }
     }
 
-    Mesh() {
+    /** The appearance array as normalised by the constructor above. */
+    Appearance[] getAppearances() {
+        return appearances;
     }
 
     public VertexBuffer getVertexBuffer() {
@@ -54,9 +80,20 @@ public class Mesh extends Node {
 
     public void setAppearance(int index, Appearance appearance) {
         appearances[index] = appearance;
+        if (handle != 0) {
+            nSetAppearance(handle, index,
+                           (appearance != null) ? appearance.handle : 0);
+        }
     }
 
     public Appearance getAppearance(int index) {
         return appearances[index];
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate(int vertices, int[] submeshes,
+                                      int[] appearances);
+    private static native void nSetAppearance(int handle, int index,
+                                              int appearance);
 }

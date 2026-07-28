@@ -27,6 +27,8 @@ public class Sprite3D extends Node {
         this.appearance = appearance;
         this.cropWidth = image.getWidth();
         this.cropHeight = image.getHeight();
+        handle = nCreate(scaled ? 1 : 0, image.handle,
+                         (appearance != null) ? appearance.handle : 0);
     }
 
     public boolean isScaled() {
@@ -38,6 +40,9 @@ public class Sprite3D extends Node {
             throw new NullPointerException();
         }
         this.image = image;
+        if (handle != 0) {
+            nSetImage(handle, image.handle);
+        }
     }
 
     public Image2D getImage() {
@@ -46,6 +51,10 @@ public class Sprite3D extends Node {
 
     public void setAppearance(Appearance appearance) {
         this.appearance = appearance;
+        if (handle != 0) {
+            nSetAppearance(handle,
+                           (appearance != null) ? appearance.handle : 0);
+        }
     }
 
     public Appearance getAppearance() {
@@ -57,10 +66,21 @@ public class Sprite3D extends Node {
         this.cropY = cropY;
         this.cropWidth = width;
         this.cropHeight = height;
+        if (handle != 0) {
+            nSetCrop(handle, cropX, cropY, width, height);
+        }
     }
 
     public int getCropX()      { return cropX; }
     public int getCropY()      { return cropY; }
     public int getCropWidth()  { return cropWidth; }
     public int getCropHeight() { return cropHeight; }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate(int scaled, int image, int appearance);
+    private static native void nSetImage(int handle, int image);
+    private static native void nSetAppearance(int handle, int appearance);
+    private static native void nSetCrop(int handle, int cropX, int cropY,
+                                        int width, int height);
 }

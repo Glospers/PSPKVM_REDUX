@@ -12,6 +12,9 @@ public class World extends Group {
     private Background background;
 
     public World() {
+        /* Not a Group in the engine -- see Group(boolean). */
+        super(false);
+        handle = nCreate();
     }
 
     public void setActiveCamera(Camera camera) {
@@ -19,6 +22,9 @@ public class World extends Group {
             throw new NullPointerException();
         }
         this.activeCamera = camera;
+        if (handle != 0) {
+            nSetActiveCamera(handle, camera.handle);
+        }
     }
 
     public Camera getActiveCamera() {
@@ -27,9 +33,19 @@ public class World extends Group {
 
     public void setBackground(Background background) {
         this.background = background;
+        if (handle != 0) {
+            nSetBackground(handle,
+                           (background != null) ? background.handle : 0);
+        }
     }
 
     public Background getBackground() {
         return background;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetActiveCamera(int world, int camera);
+    private static native void nSetBackground(int world, int background);
 }

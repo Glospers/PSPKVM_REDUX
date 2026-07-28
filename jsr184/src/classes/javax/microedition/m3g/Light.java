@@ -23,10 +23,14 @@ public class Light extends Node {
     private float quadraticAttenuation = 0.0f;
 
     public Light() {
+        handle = nCreate();
     }
 
     public void setMode(int mode) {
         this.mode = mode;
+        if (handle != 0) {
+            nSetMode(handle, mode);
+        }
     }
 
     public int getMode() {
@@ -35,6 +39,9 @@ public class Light extends Node {
 
     public void setColor(int RGB) {
         this.color = RGB & 0x00FFFFFF;
+        if (handle != 0) {
+            nSetColor(handle, this.color);
+        }
     }
 
     public int getColor() {
@@ -43,6 +50,9 @@ public class Light extends Node {
 
     public void setIntensity(float intensity) {
         this.intensity = intensity;
+        if (handle != 0) {
+            nSetIntensity(handle, intensity);
+        }
     }
 
     public float getIntensity() {
@@ -54,6 +64,9 @@ public class Light extends Node {
             throw new IllegalArgumentException("spot angle must be in [0,90]");
         }
         this.spotAngle = angle;
+        if (handle != 0) {
+            nSetSpotAngle(handle, angle);
+        }
     }
 
     public float getSpotAngle() {
@@ -62,6 +75,9 @@ public class Light extends Node {
 
     public void setSpotExponent(float exponent) {
         this.spotExponent = exponent;
+        if (handle != 0) {
+            nSetSpotExponent(handle, exponent);
+        }
     }
 
     public float getSpotExponent() {
@@ -72,9 +88,23 @@ public class Light extends Node {
         this.constantAttenuation = constant;
         this.linearAttenuation = linear;
         this.quadraticAttenuation = quadratic;
+        if (handle != 0) {
+            nSetAttenuation(handle, constant, linear, quadratic);
+        }
     }
 
     public float getConstantAttenuation()  { return constantAttenuation; }
     public float getLinearAttenuation()    { return linearAttenuation; }
     public float getQuadraticAttenuation() { return quadraticAttenuation; }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetMode(int handle, int mode);
+    private static native void nSetColor(int handle, int RGB);
+    private static native void nSetIntensity(int handle, float intensity);
+    private static native void nSetSpotAngle(int handle, float angle);
+    private static native void nSetSpotExponent(int handle, float exponent);
+    private static native void nSetAttenuation(int handle, float constant,
+                                               float linear, float quadratic);
 }

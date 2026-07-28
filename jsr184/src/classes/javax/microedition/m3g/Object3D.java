@@ -8,9 +8,19 @@ package javax.microedition.m3g;
 /**
  * Base class of every object that can appear in a 3D scene.
  *
- * The class hierarchy and public API are in place so that MIDlets link and
- * run. Objects that came out of {@link Loader} additionally carry the handle
- * of the m3gcore object they stand for; the rest are Java-only so far.
+ * Every instance stands for an object inside m3gcore, identified by
+ * {@link #handle}. Objects that came out of {@link Loader} were built by the
+ * engine's own file parser; the rest are built by the public constructors,
+ * which call the matching <code>m3gCreate*</code> through the natives in
+ * jsr184/src/native/m3g_object_kni.c. The engine is the source of truth for
+ * anything rendering depends on; the Java fields that remain exist only so the
+ * getters can answer.
+ *
+ * A zero handle means the engine refused the creation -- almost always the M3G
+ * arena running out (m3g/src/m3g_psp_arena.c). The wrappers stay usable in
+ * that case and simply do not draw, rather than throwing at a MIDlet that has
+ * no way to recover; the native side writes one diagnostic line per failure to
+ * ms0:/pspkvm_vm.log.
  */
 public abstract class Object3D {
 
@@ -104,8 +114,44 @@ public abstract class Object3D {
             return null;
         }
 
-        object.handle = handle;
+        object.adopt(handle);
         return object;
+    }
+
+    /**
+     * Installs the handle of an engine object somebody else built.
+     *
+     * The wrapper constructors above are the public ones for every class whose
+     * public constructor is parameterless, so several of them have already
+     * created an engine object of their own by the time this runs. That one is
+     * released here: it was never referenced by anything else, so dropping the
+     * single reference the constructor took destroys it.
+     */
+    void adopt(int engineHandle) {
+        if (handle != 0 && handle != engineHandle) {
+            nDeleteRef(handle);
+        }
+        handle = engineHandle;
+    }
+
+    /**
+     * The handles of an array of objects, in the layout the engine's
+     * <code>M3GObject *</code> parameters expect.
+     *
+     * A Java <code>int[]</code> and an array of engine handles are the same
+     * bytes, so the natives pass one straight through as the other rather than
+     * copying (see the note on raw array pointers in
+     * jsr184/src/native/m3g_object_kni.c).
+     */
+    static int[] handles(Object3D[] objects) {
+        if (objects == null) {
+            return null;
+        }
+        int[] result = new int[objects.length];
+        for (int i = 0; i < objects.length; i++) {
+            result[i] = (objects[i] != null) ? objects[i].handle : 0;
+        }
+        return result;
     }
 
     public final Object3D duplicate() {
@@ -131,6 +177,9 @@ public abstract class Object3D {
 
     public void setUserID(int userID) {
         this.userID = userID;
+        if (handle != 0) {
+            nSetUserID(handle, userID);
+        }
     }
 
     public Object getUserObject() {
@@ -163,4 +212,14 @@ public abstract class Object3D {
     public int animate(int time) {
         return 0;
     }
+
+    /*
+     * Natives. Statically bound by name; see
+     * jsr184/src/native/m3g_object_kni.c.
+     */
+
+    /** Drops one reference, destroying the object if it was the last. */
+    private static native void nDeleteRef(int handle);
+
+    private static native void nSetUserID(int handle, int userID);
 }

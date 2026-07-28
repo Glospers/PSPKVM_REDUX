@@ -21,6 +21,7 @@ public class Material extends Object3D {
     private boolean vertexColorTrackingEnabled;
 
     public Material() {
+        handle = nCreate();
     }
 
     public void setColor(int target, int ARGB) {
@@ -28,6 +29,9 @@ public class Material extends Object3D {
         if ((target & DIFFUSE)  != 0) { diffuseColor  = ARGB; }
         if ((target & EMISSIVE) != 0) { emissiveColor = ARGB & 0x00FFFFFF; }
         if ((target & SPECULAR) != 0) { specularColor = ARGB & 0x00FFFFFF; }
+        if (handle != 0) {
+            nSetColor(handle, target, ARGB);
+        }
     }
 
     public int getColor(int target) {
@@ -46,6 +50,9 @@ public class Material extends Object3D {
             throw new IllegalArgumentException("shininess must be in [0,128]");
         }
         this.shininess = shininess;
+        if (handle != 0) {
+            nSetShininess(handle, shininess);
+        }
     }
 
     public float getShininess() {
@@ -54,9 +61,19 @@ public class Material extends Object3D {
 
     public void setVertexColorTrackingEnable(boolean enable) {
         vertexColorTrackingEnabled = enable;
+        if (handle != 0) {
+            nSetVertexColorTracking(handle, enable ? 1 : 0);
+        }
     }
 
     public boolean isVertexColorTrackingEnabled() {
         return vertexColorTrackingEnabled;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetColor(int handle, int target, int ARGB);
+    private static native void nSetShininess(int handle, float shininess);
+    private static native void nSetVertexColorTracking(int handle, int enable);
 }

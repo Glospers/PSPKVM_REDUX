@@ -24,6 +24,7 @@ public class PolygonMode extends Object3D {
     private boolean perspectiveCorrectionEnabled;
 
     public PolygonMode() {
+        handle = nCreate();
     }
 
     public void setCulling(int mode) {
@@ -31,6 +32,9 @@ public class PolygonMode extends Object3D {
             throw new IllegalArgumentException("invalid culling mode");
         }
         culling = mode;
+        if (handle != 0) {
+            nSetCulling(handle, mode);
+        }
     }
 
     public int getCulling() {
@@ -42,6 +46,9 @@ public class PolygonMode extends Object3D {
             throw new IllegalArgumentException("invalid shading mode");
         }
         shading = mode;
+        if (handle != 0) {
+            nSetShading(handle, mode);
+        }
     }
 
     public int getShading() {
@@ -53,6 +60,9 @@ public class PolygonMode extends Object3D {
             throw new IllegalArgumentException("invalid winding mode");
         }
         winding = mode;
+        if (handle != 0) {
+            nSetWinding(handle, mode);
+        }
     }
 
     public int getWinding() {
@@ -61,6 +71,9 @@ public class PolygonMode extends Object3D {
 
     public void setTwoSidedLightingEnable(boolean enable) {
         twoSidedLightingEnabled = enable;
+        if (handle != 0) {
+            nSetTwoSidedLighting(handle, enable ? 1 : 0);
+        }
     }
 
     public boolean isTwoSidedLightingEnabled() {
@@ -69,6 +82,9 @@ public class PolygonMode extends Object3D {
 
     public void setLocalCameraLightingEnable(boolean enable) {
         localCameraLightingEnabled = enable;
+        if (handle != 0) {
+            nSetLocalCameraLighting(handle, enable ? 1 : 0);
+        }
     }
 
     public boolean isLocalCameraLightingEnabled() {
@@ -77,9 +93,22 @@ public class PolygonMode extends Object3D {
 
     public void setPerspectiveCorrectionEnable(boolean enable) {
         perspectiveCorrectionEnabled = enable;
+        if (handle != 0) {
+            nSetPerspectiveCorrection(handle, enable ? 1 : 0);
+        }
     }
 
     public boolean isPerspectiveCorrectionEnabled() {
         return perspectiveCorrectionEnabled;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetCulling(int handle, int mode);
+    private static native void nSetShading(int handle, int mode);
+    private static native void nSetWinding(int handle, int mode);
+    private static native void nSetTwoSidedLighting(int handle, int enable);
+    private static native void nSetLocalCameraLighting(int handle, int enable);
+    private static native void nSetPerspectiveCorrection(int handle, int enable);
 }

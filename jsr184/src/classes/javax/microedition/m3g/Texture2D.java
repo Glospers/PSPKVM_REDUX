@@ -37,6 +37,7 @@ public class Texture2D extends Transformable {
             throw new NullPointerException();
         }
         this.image = image;
+        handle = nCreate(image.handle);
     }
 
     public void setImage(Image2D image) {
@@ -44,6 +45,9 @@ public class Texture2D extends Transformable {
             throw new NullPointerException();
         }
         this.image = image;
+        if (handle != 0) {
+            nSetImage(handle, image.handle);
+        }
     }
 
     public Image2D getImage() {
@@ -53,6 +57,9 @@ public class Texture2D extends Transformable {
     public void setFiltering(int levelFilter, int imageFilter) {
         this.levelFilter = levelFilter;
         this.imageFilter = imageFilter;
+        if (handle != 0) {
+            nSetFiltering(handle, levelFilter, imageFilter);
+        }
     }
 
     public int getLevelFilter() { return levelFilter; }
@@ -61,6 +68,9 @@ public class Texture2D extends Transformable {
     public void setWrapping(int wrapS, int wrapT) {
         this.wrappingS = wrapS;
         this.wrappingT = wrapT;
+        if (handle != 0) {
+            nSetWrapping(handle, wrapS, wrapT);
+        }
     }
 
     public int getWrappingS() { return wrappingS; }
@@ -68,6 +78,9 @@ public class Texture2D extends Transformable {
 
     public void setBlending(int func) {
         this.blending = func;
+        if (handle != 0) {
+            nSetBlending(handle, func);
+        }
     }
 
     public int getBlending() {
@@ -76,9 +89,22 @@ public class Texture2D extends Transformable {
 
     public void setBlendColor(int RGB) {
         this.blendColor = RGB & 0x00FFFFFF;
+        if (handle != 0) {
+            nSetBlendColor(handle, this.blendColor);
+        }
     }
 
     public int getBlendColor() {
         return blendColor;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate(int image);
+    private static native void nSetImage(int handle, int image);
+    private static native void nSetFiltering(int handle, int levelFilter,
+                                             int imageFilter);
+    private static native void nSetWrapping(int handle, int wrapS, int wrapT);
+    private static native void nSetBlending(int handle, int func);
+    private static native void nSetBlendColor(int handle, int RGB);
 }

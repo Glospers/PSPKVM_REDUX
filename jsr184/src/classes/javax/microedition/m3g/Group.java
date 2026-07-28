@@ -11,6 +11,19 @@ public class Group extends Node {
     private java.util.Vector children = new java.util.Vector();
 
     public Group() {
+        handle = nCreate();
+    }
+
+    /**
+     * For subclasses that create an engine object of their own.
+     *
+     * World is a Group in Java but an M3GWorld in the engine, so it must not
+     * inherit this class's m3gCreateGroup call and then leak the result.
+     */
+    Group(boolean createEngineObject) {
+        if (createEngineObject) {
+            handle = nCreate();
+        }
     }
 
     public void addChild(Node child) {
@@ -22,6 +35,9 @@ public class Group extends Node {
         }
         children.addElement(child);
         child.parent = this;
+        if (handle != 0 && child.handle != 0) {
+            nAddChild(handle, child.handle);
+        }
     }
 
     public void removeChild(Node child) {
@@ -30,6 +46,9 @@ public class Group extends Node {
         }
         if (children.removeElement(child)) {
             child.parent = null;
+        }
+        if (handle != 0 && child.handle != 0) {
+            nRemoveChild(handle, child.handle);
         }
     }
 
@@ -64,4 +83,10 @@ public class Group extends Node {
         }
         return null;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nAddChild(int group, int child);
+    private static native void nRemoveChild(int group, int child);
 }

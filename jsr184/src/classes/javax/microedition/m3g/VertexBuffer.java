@@ -18,6 +18,7 @@ public class VertexBuffer extends Object3D {
         for (int i = 0; i < 2; i++) {
             texScaleBias[i][0] = 1.0f;
         }
+        handle = nCreate();
     }
 
     public int getVertexCount() {
@@ -32,6 +33,10 @@ public class VertexBuffer extends Object3D {
             positionScaleBias[2] = bias[1];
             positionScaleBias[3] = bias[2];
         }
+        if (handle != 0) {
+            nSetPositions(handle, (positions != null) ? positions.handle : 0,
+                          scale, bias);
+        }
     }
 
     public VertexArray getPositions(float[] scaleBias) {
@@ -43,6 +48,9 @@ public class VertexBuffer extends Object3D {
 
     public void setNormals(VertexArray normals) {
         this.normals = normals;
+        if (handle != 0) {
+            nSetNormals(handle, (normals != null) ? normals.handle : 0);
+        }
     }
 
     public VertexArray getNormals() {
@@ -51,6 +59,9 @@ public class VertexBuffer extends Object3D {
 
     public void setColors(VertexArray colors) {
         this.colors = colors;
+        if (handle != 0) {
+            nSetColors(handle, (colors != null) ? colors.handle : 0);
+        }
     }
 
     public VertexArray getColors() {
@@ -69,6 +80,11 @@ public class VertexBuffer extends Object3D {
                 texScaleBias[index][i + 1] = bias[i];
             }
         }
+        if (handle != 0) {
+            nSetTexCoords(handle, index,
+                          (texCoords != null) ? texCoords.handle : 0,
+                          scale, bias);
+        }
     }
 
     public VertexArray getTexCoords(int index, float[] scaleBias) {
@@ -83,9 +99,23 @@ public class VertexBuffer extends Object3D {
 
     public void setDefaultColor(int ARGB) {
         this.defaultColor = ARGB;
+        if (handle != 0) {
+            nSetDefaultColor(handle, ARGB);
+        }
     }
 
     public int getDefaultColor() {
         return defaultColor;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetPositions(int handle, int array,
+                                             float scale, float[] bias);
+    private static native void nSetNormals(int handle, int array);
+    private static native void nSetColors(int handle, int array);
+    private static native void nSetTexCoords(int handle, int unit, int array,
+                                             float scale, float[] bias);
+    private static native void nSetDefaultColor(int handle, int ARGB);
 }

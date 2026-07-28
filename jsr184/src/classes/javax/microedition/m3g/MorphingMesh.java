@@ -18,14 +18,21 @@ public class MorphingMesh extends Mesh {
 
     public MorphingMesh(VertexBuffer base, VertexBuffer[] targets,
                         IndexBuffer submesh, Appearance appearance) {
-        super(base, submesh, appearance);
-        initTargets(targets);
+        this(base, targets,
+             new IndexBuffer[] { submesh },
+             new Appearance[] { appearance });
     }
 
     public MorphingMesh(VertexBuffer base, VertexBuffer[] targets,
                         IndexBuffer[] submeshes, Appearance[] appearances) {
-        super(base, submeshes, appearances);
+        /* false: a MorphingMesh is not an M3GMesh -- see
+         * Mesh(VertexBuffer, IndexBuffer[], Appearance[], boolean). */
+        super(base, submeshes, appearances, false);
         initTargets(targets);
+        handle = nCreate(base.handle,
+                         handles(targets),
+                         handles(submeshes),
+                         handles(getAppearances()));
     }
 
     private void initTargets(VertexBuffer[] targets) {
@@ -55,6 +62,9 @@ public class MorphingMesh extends Mesh {
             throw new IllegalArgumentException("too few weights");
         }
         System.arraycopy(weights, 0, this.weights, 0, targets.length);
+        if (handle != 0) {
+            nSetWeights(handle, this.weights);
+        }
     }
 
     public void getWeights(float[] weights) {
@@ -63,4 +73,10 @@ public class MorphingMesh extends Mesh {
         }
         System.arraycopy(this.weights, 0, weights, 0, this.weights.length);
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate(int vertices, int[] targets,
+                                      int[] submeshes, int[] appearances);
+    private static native void nSetWeights(int handle, float[] weights);
 }

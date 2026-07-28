@@ -31,6 +31,7 @@ public class VertexArray extends Object3D {
         } else {
             shortValues = new short[numVertices * numComponents];
         }
+        handle = nCreate(numVertices, numComponents, componentSize);
     }
 
     public int getVertexCount()   { return numVertices; }
@@ -47,6 +48,9 @@ public class VertexArray extends Object3D {
         System.arraycopy(values, 0, byteValues,
                          firstVertex * numComponents,
                          numVertices * numComponents);
+        if (handle != 0) {
+            nSetByte(handle, firstVertex, numVertices, values);
+        }
     }
 
     public void set(int firstVertex, int numVertices, short[] values) {
@@ -59,6 +63,9 @@ public class VertexArray extends Object3D {
         System.arraycopy(values, 0, shortValues,
                          firstVertex * numComponents,
                          numVertices * numComponents);
+        if (handle != 0) {
+            nSetShort(handle, firstVertex, numVertices, values);
+        }
     }
 
     public void get(int firstVertex, int numVertices, byte[] values) {
@@ -82,4 +89,19 @@ public class VertexArray extends Object3D {
         System.arraycopy(shortValues, firstVertex * numComponents,
                          values, 0, numVertices * numComponents);
     }
+
+    /*
+     * Natives; see jsr184/src/native/m3g_object_kni.c.
+     *
+     * The two setters cannot both be called nSet: phoneME binds natives from
+     * the class and method name alone, with no signature, so overloaded
+     * natives would collide.
+     */
+
+    private static native int nCreate(int numVertices, int numComponents,
+                                      int componentSize);
+    private static native void nSetByte(int handle, int firstVertex,
+                                        int numVertices, byte[] values);
+    private static native void nSetShort(int handle, int firstVertex,
+                                         int numVertices, short[] values);
 }

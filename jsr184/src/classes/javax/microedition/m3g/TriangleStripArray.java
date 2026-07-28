@@ -31,6 +31,7 @@ public class TriangleStripArray extends IndexBuffer {
         for (int i = 0; i < total; i++) {
             indices[i] = firstIndex + i;
         }
+        handle = nCreateImplicit(firstIndex, stripLengths);
     }
 
     public TriangleStripArray(int[] indices, int[] stripLengths) {
@@ -49,5 +50,17 @@ public class TriangleStripArray extends IndexBuffer {
         }
         this.indices = new int[total];
         System.arraycopy(indices, 0, this.indices, 0, total);
+        handle = nCreateExplicit(this.indices, stripLengths);
     }
+
+    /*
+     * Natives; see jsr184/src/native/m3g_object_kni.c. The engine's index
+     * arrays are M3G_INT, i.e. exactly a Java int[], so both arrays go through
+     * without a copy.
+     */
+
+    private static native int nCreateImplicit(int firstIndex,
+                                              int[] stripLengths);
+    private static native int nCreateExplicit(int[] indices,
+                                              int[] stripLengths);
 }

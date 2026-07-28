@@ -46,7 +46,8 @@ vpath % $(INTERNAL_JSR_184_NATIVE_DIR)
 
 SUBSYSTEM_JSR_184_NATIVE_FILES = \
 	m3g_loader_kni.c \
-	m3g_graphics3d_kni.c
+	m3g_graphics3d_kni.c \
+	m3g_object_kni.c
 
 # The natives call the M3G engine through m3g/inc/M3G/m3g_psp.h. The engine
 # itself is a separate static library built ahead of MIDP (m3g/Makefile) and

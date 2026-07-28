@@ -18,6 +18,7 @@ public class Camera extends Node {
     private Transform projection = new Transform();
 
     public Camera() {
+        handle = nCreate();
     }
 
     public void setParallel(float fovy, float aspectRatio,
@@ -27,6 +28,9 @@ public class Camera extends Node {
         this.aspectRatio = aspectRatio;
         this.near = near;
         this.far = far;
+        if (handle != 0) {
+            nSetParallel(handle, fovy, aspectRatio, near, far);
+        }
     }
 
     public void setPerspective(float fovy, float aspectRatio,
@@ -36,6 +40,9 @@ public class Camera extends Node {
         this.aspectRatio = aspectRatio;
         this.near = near;
         this.far = far;
+        if (handle != 0) {
+            nSetPerspective(handle, fovy, aspectRatio, near, far);
+        }
     }
 
     public void setGeneric(Transform transform) {
@@ -44,6 +51,9 @@ public class Camera extends Node {
         }
         this.projectionType = GENERIC;
         this.projection = new Transform(transform);
+        if (handle != 0) {
+            nSetGeneric(handle, this.projection.rows());
+        }
     }
 
     public int getProjection(Transform transform) {
@@ -65,4 +75,15 @@ public class Camera extends Node {
         }
         return projectionType;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetPerspective(int handle, float fovy,
+                                               float aspectRatio,
+                                               float near, float far);
+    private static native void nSetParallel(int handle, float height,
+                                            float aspectRatio,
+                                            float near, float far);
+    private static native void nSetGeneric(int handle, float[] matrix);
 }
