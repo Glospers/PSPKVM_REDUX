@@ -1,0 +1,174 @@
+--- a/javacall/implementation/psp_mips/common/dir.c
++++ b/javacall/implementation/psp_mips/common/dir.c
+@@ -58,45 +58,31 @@
+  *         input 'string' cannot be found.
+  */
+ javacall_handle javacall_dir_open(const javacall_utf16* path, int pathLen) {
+-#if 0
+     SceUID dfd;
+-    slot *handle = NULL;
++    slot* handle;
+     char* szPath = javacall_UNICODEsToUtf8(path, pathLen);
+     if (!szPath) {
+         return NULL;
+     }
+ 
+-   javacall_print(szPath);
+-   javacall_print("\n");
+-    
+     dfd = (SceUID)sceIoDopen(szPath);
+-    if(dfd >= 0) {
+-    	handle = (slot*)malloc(sizeof(slot));
+-    	handle->handle = dfd;
+-    	handle->dirent = (SceIoDirent*)malloc(sizeof(SceIoDirent));
+-    	memset(handle->dirent, 0, sizeof(SceIoDirent));
+-    } else {
+-        handle = NULL;
+-    }
+-#endif
+-#ifdef DEBUG_JAVACALL_DIR
+-    javacall_print("javacall_dir_open:\n");
+-#endif
+-    char* szPath = javacall_UNICODEsToUtf8(path, pathLen);
+-    if (!szPath) {
++    if (dfd < 0) {
+         return NULL;
+     }
+ 
+-#ifdef DEBUG_JAVACALL_DIR    
+-   javacall_print(szPath);
+-   javacall_print("\n");
+-#endif    
+-
+-    DIR* handle = opendir(szPath);
+-
+-#ifdef DEBUG_JAVACALL_DIR
+-    javacall_printf("return %x\n", handle);
+-#endif
++    handle = (slot*)malloc(sizeof(slot));
++    if (handle == NULL) {
++        sceIoDclose(dfd);
++        return NULL;
++    }
++    handle->handle = dfd;
++    handle->dirent = (SceIoDirent*)malloc(sizeof(SceIoDirent));
++    if (handle->dirent == NULL) {
++        sceIoDclose(dfd);
++        free(handle);
++        return NULL;
++    }
++    memset(handle->dirent, 0, sizeof(SceIoDirent));
+     return (javacall_handle)handle;
+ }
+     
+@@ -107,12 +93,13 @@
+  *               javacall_dir_open 
+  */
+ void javacall_dir_close(javacall_handle handle) {
+-#if 0
+-    sceIoDclose(((slot*)handle)->handle);
+-    free(((slot*)handle)->dirent);
+-    free(handle);
+-#endif
+-    closedir((DIR*)handle);
++    slot* h = (slot*)handle;
++    if (h == NULL) {
++        return;
++    }
++    sceIoDclose(h->handle);
++    free(h->dirent);
++    free(h);
+ }
+     
+ /**
+@@ -131,63 +118,38 @@
+  * platform MUST BE responsible for allocating and freeing it.
+  */
+ javacall_utf16* javacall_dir_get_next(javacall_handle handle, int* /*OUT*/ outFilenameLength) {
+-#if 0
+-    int result;
+     slot* h = (slot*)handle;
+- 
+-    result = sceIoDread(h->handle, h->dirent); 
+-    if (result > 0) {
+-    	
+-    	int len = strlen(h->dirent->d_name);
+-    	if (len >= 256) {
+-    	    return NULL;
+-    	} else {
+-    	    if(h->dirent->d_stat.st_attr & FIO_SO_IFDIR) {
+-    	    	  h->name[len] = (javacall_utf16)'/';
+-    	    	  *outFilenameLength = len+1;
+-    	    	  h->name[len+1] = 0;
+-    	    } else {
+-    	         *outFilenameLength = len;
+-                h->name[len] = 0;
+-    	    }
+-           while (len--) {
+-               h->name[len] = h->dirent->d_name[len];
+-           }
+-    	}
+-    	//printf("javacall_dir_get_next: %s, len=%d\n", dir.d_name, *outFilenameLength);
+-    	return h->name;
+-    } else {
+-        //javacall_print("failed\n");
++    int result;
++    int len;
++
++    if (h == NULL) {
+         return NULL;
+     }
+-#endif
+-    static javacall_utf16 name[JAVACALL_MAX_FILE_NAME_LENGTH+1];
+-    
+-    struct dirent* d = readdir((DIR*)handle);
+-    if (d != NULL) {
+-        int len = strlen(d->d_name);
+-#ifdef DEBUG_JAVACALL_DIR
+-        javacall_printf("javacall_dir_get_next: %s, len=%d, dir=%d\n", d->d_name, len, (d->d_stat.st_attr & FIO_SO_IFDIR)?1:0);
+-#endif
+-    	if (len >= JAVACALL_MAX_FILE_NAME_LENGTH - 1) {
+-    	    return NULL;
+-    	} else {
+-    	    if(d->d_stat.st_attr & FIO_SO_IFDIR) {
+-    	         name[len] = (javacall_utf16)'/';
+-    	    	  *outFilenameLength = len+1;
+-    	    	  name[len+1] = 0;
+-    	    } else {
+-    	         *outFilenameLength = len;
+-                name[len] = 0;
+-    	    }
+-           while (len--) {
+-               name[len] = (javacall_utf16)d->d_name[len] & 0xff;
+-           }
+-    	}
+-    	return name;
++
++    memset(h->dirent, 0, sizeof(SceIoDirent));
++    result = sceIoDread(h->handle, h->dirent);
++    if (result <= 0) {
++        /* 0 means end of directory, negative means error. */
++        return NULL;
++    }
++
++    len = strlen(h->dirent->d_name);
++    if (len == 0 || len >= 255) {
++        return NULL;
++    }
++
++    if (h->dirent->d_stat.st_attr & FIO_SO_IFDIR) {
++        h->name[len] = (javacall_utf16)'/';
++        *outFilenameLength = len + 1;
++        h->name[len+1] = 0;
+     } else {
+-       return NULL;
++        *outFilenameLength = len;
++        h->name[len] = 0;
++    }
++    while (len--) {
++        h->name[len] = (javacall_utf16)(h->dirent->d_name[len] & 0xff);
+     }
++    return h->name;
+ }
+     
+ /**
