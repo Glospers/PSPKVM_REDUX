@@ -122,9 +122,10 @@ echo ">> [2/3] building phoneME libraries (javacall/pcsl/cldc/midp)"
 
 # --- 3) link + package EBOOT.PBP --------------------------------------------
 # psp/Makefile picks libm3g.a up from $(ROOT)/m3g/lib and pulls it in with
-# --whole-archive: nothing calls into the engine yet, so an ordinary -lm3g
-# would let the linker discard every object in it and produce a byte-identical
-# EBOOT (see docker/patches/0042-psp-link-m3g.patch).
+# --whole-archive (see docker/patches/0042-psp-link-m3g.patch). The Loader
+# natives reach only a handful of entry points, so without --whole-archive the
+# linker would drop the rest of the engine -- everything the later rendering
+# work needs -- as unreferenced.
 echo ">> [3/3] linking + packaging EBOOT.PBP (BUILD_SLIM=true)"
 cd psp
 make BUILD_SLIM=true

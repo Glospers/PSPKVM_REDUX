@@ -27,6 +27,11 @@ public class Texture2D extends Transformable {
     private int levelFilter = FILTER_BASE_LEVEL;
     private int imageFilter = FILTER_NEAREST;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    Texture2D() {
+    }
+
     public Texture2D(Image2D image) {
         if (image == null) {
             throw new NullPointerException();

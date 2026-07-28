@@ -17,6 +17,11 @@ public class Image2D extends Object3D {
     private int format, width, height;
     private boolean mutable;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    Image2D() {
+    }
+
     public Image2D(int format, int width, int height) {
         checkShape(format, width, height);
         this.format = format;

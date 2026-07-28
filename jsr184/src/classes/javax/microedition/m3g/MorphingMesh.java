@@ -11,6 +11,11 @@ public class MorphingMesh extends Mesh {
     private VertexBuffer[] targets;
     private float[] weights;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    MorphingMesh() {
+    }
+
     public MorphingMesh(VertexBuffer base, VertexBuffer[] targets,
                         IndexBuffer submesh, Appearance appearance) {
         super(base, submesh, appearance);

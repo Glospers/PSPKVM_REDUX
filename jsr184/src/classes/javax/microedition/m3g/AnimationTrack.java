@@ -34,6 +34,11 @@ public class AnimationTrack extends Object3D {
     private AnimationController controller;
     private int property;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    AnimationTrack() {
+    }
+
     public AnimationTrack(KeyframeSequence sequence, int property) {
         if (sequence == null) {
             throw new NullPointerException();

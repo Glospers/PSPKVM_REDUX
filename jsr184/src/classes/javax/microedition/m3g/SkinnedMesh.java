@@ -10,6 +10,11 @@ public class SkinnedMesh extends Mesh {
 
     private Group skeleton;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    SkinnedMesh() {
+    }
+
     public SkinnedMesh(VertexBuffer vertices, IndexBuffer submesh,
                        Appearance appearance, Group skeleton) {
         super(vertices, submesh, appearance);

@@ -30,3 +30,28 @@ MIDP_JAVADOC_ALL += \
 # Java files for the ( jsr_184 ) module
 SUBSYSTEM_JSR_184_JAVA_FILES := \
 	$(shell (find $(INTERNAL_JSR_184_CLASSES_DIR) -name '*.java' | egrep -v 'SCCS'))
+
+######################################################################
+# Native code
+#
+# SubsystemDefs.gmk turns SUBSYSTEM_JSR_184_NATIVE_FILES into objects of
+# libmidp.a (via JTWI_NATIVE_FILES; see docker/patches/0037), and it looks the
+# sources up by bare basename through vpath -- the same arrangement jsr179
+# uses at jsr179/src/config/subsystem.gmk:111-115.
+######################################################################
+
+INTERNAL_JSR_184_NATIVE_DIR = $(JSR_184_DIR)/src/native
+
+vpath % $(INTERNAL_JSR_184_NATIVE_DIR)
+
+SUBSYSTEM_JSR_184_NATIVE_FILES = \
+	m3g_loader_kni.c
+
+# The natives call the M3G engine through m3g/inc/M3G/m3g_psp.h. The engine
+# itself is a separate static library built ahead of MIDP (m3g/Makefile) and
+# linked into the ELF by docker/patches/0042; only its headers are needed here.
+SUBSYSTEM_JSR_184_EXTRA_INCLUDES = -I$(JSR_184_DIR)/../m3g/inc
+
+# SubsystemDefs.gmk's JSR-184 block only forwards the file lists, so -- as in
+# jsr179/src/config/subsystem.gmk:189 -- the include path is added here.
+EXTRA_INCLUDES += $(SUBSYSTEM_JSR_184_EXTRA_INCLUDES)

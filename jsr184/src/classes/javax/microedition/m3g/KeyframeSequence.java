@@ -22,6 +22,11 @@ public class KeyframeSequence extends Object3D {
     private int[] keyTimes;
     private float[][] keyValues;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    KeyframeSequence() {
+    }
+
     public KeyframeSequence(int numKeyframes, int numComponents,
                             int interpolation) {
         if (numKeyframes < 1 || numComponents < 1) {

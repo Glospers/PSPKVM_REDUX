@@ -15,6 +15,10 @@
 EBOOT.PBP
 PARAM.SFO
 **/output/
+/m3g/obj/
+/m3g/lib/
+/m3g/test/obj/
+/m3g/test/m3g_load_test
 /build/
 /dist/
 /ppsspp_win/

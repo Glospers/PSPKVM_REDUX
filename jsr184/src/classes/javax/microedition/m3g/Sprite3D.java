@@ -13,6 +13,11 @@ public class Sprite3D extends Node {
     private Appearance appearance;
     private int cropX, cropY, cropWidth, cropHeight;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    Sprite3D() {
+    }
+
     public Sprite3D(boolean scaled, Image2D image, Appearance appearance) {
         if (image == null) {
             throw new NullPointerException();

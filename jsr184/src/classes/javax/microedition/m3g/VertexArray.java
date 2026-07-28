@@ -12,6 +12,11 @@ public class VertexArray extends Object3D {
     private byte[] byteValues;
     private short[] shortValues;
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    VertexArray() {
+    }
+
     public VertexArray(int numVertices, int numComponents, int componentSize) {
         if (numVertices < 1 || numVertices > 65535
                 || numComponents < 2 || numComponents > 4

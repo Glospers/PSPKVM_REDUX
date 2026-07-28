@@ -8,6 +8,11 @@ package javax.microedition.m3g;
 
 public class TriangleStripArray extends IndexBuffer {
 
+    /** Wrapper for an object that already exists in the engine; see
+     *  Object3D.createWrapper. */
+    TriangleStripArray() {
+    }
+
     public TriangleStripArray(int firstIndex, int[] stripLengths) {
         if (stripLengths == null) {
             throw new NullPointerException();
