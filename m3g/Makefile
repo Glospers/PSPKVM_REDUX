@@ -113,6 +113,30 @@ DEFINES     := -DM3G_TARGET_SYMBIAN \
                -Dm3gSymbianInflateBlock=m3gPspInflateBlock \
                -DM3G_FORCE_BUFFERED_RENDERING
 
+# Reserve only the edram PSPKVM actually holds, not all of it.
+#
+# src/m3g_psp_vidmem.c clamps this up to getStaticVramUsed(), so 0 means
+# "exactly PSPKVM's high-water mark and not a byte more", leaving pspgl the
+# remaining ~704 KB of edram to allocate in.
+#
+# It used to reserve everything.  That was not because pspgl needed keeping out
+# of edram -- the watermark alone does that -- but to stop it ever taking the
+# eviction path, which copies a buffer out with the GE and dereferences pspgl's
+# current-context global while doing it.  With no context current that global
+# is NULL and the copy faults.  The port now holds a context for the life of
+# the process (m3gPspHoldGLContext, src/m3g_psp_egl.c), so that precondition is
+# gone and eviction has a context to work with.
+#
+# What it buys: with everything reserved, every pspgl buffer fell back to
+# memalign from the C heap -- which on this platform is where the Java object
+# heap and PSPKVM's own display globals live.  Handing pspgl real video memory
+# takes it out of that heap altogether.
+#
+# If this reintroduces a fault inside pspgl's eviction path, the held context
+# is not doing what it should and that is a finding about pspgl, not something
+# to paper over: raise this back to a value large enough to cover edram.
+DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=0
+
 # Size of the engine's private heap (src/m3g_psp_arena.c).  Left unset the
 # source picks its own default; override on the command line to retune after
 # reading the peak= figure the KNI layer logs to ms0:/pspkvm_vm.log.

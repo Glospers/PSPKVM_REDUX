@@ -115,10 +115,17 @@ extern int __pspgl_vidmem_alloc(struct m3gPspGlBuffer *buf);
 /*----------------------------------------------------------------------
  * How much to reserve
  *
- * M3G_PSP_VRAM_RESERVE_KB overrides the default of "all of it"; see the note
- * at the top of the file before lowering it.  Anything at or above PSPKVM's
- * high-water mark keeps the two allocators apart, but only "all of it" also
- * keeps pspgl off the eviction path.
+ * M3G_PSP_VRAM_RESERVE_KB overrides the default of "all of it"; the Makefile
+ * sets it to 0, which this clamps up to PSPKVM's high-water mark -- i.e.
+ * reserve exactly what PSPKVM holds and leave pspgl the rest of edram.
+ *
+ * The note at the top of this file explains why it was once "all of it": to
+ * keep pspgl off the eviction path, which reaches the GE through a
+ * current-context global that was NULL during target binding.  The port now
+ * holds a context for the life of the process (m3gPspHoldGLContext), so
+ * eviction has a context and the reservation no longer has to be total.  That
+ * matters because a total reservation forced every pspgl buffer into memalign
+ * from the C heap, alongside the Java object heap.
  *
  * sceGeEdramGetSize and getStaticVramUsed are both declared weak: the former
  * so the host-side test harness in m3g/test/ links without the PSP SDK, the
