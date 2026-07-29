@@ -37,6 +37,19 @@
 
 static M3GInterface s_interface = NULL;
 
+/*!
+ * \brief The interface if it exists, never creating one.
+ *
+ * See the note in inc/M3G/m3g_psp.h: creating the interface starts pspgl, and
+ * doing that while PSPKVM is drawing its own 2D wedges the display. Object
+ * construction therefore asks with this and does nothing if the answer is
+ * NULL; only binding a target and loading a file may bring the renderer up.
+ */
+M3GInterface m3gPspPeekInterface(void)
+{
+    return s_interface;
+}
+
 M3GInterface m3gPspGetInterface(void)
 {
     if (s_interface == NULL) {

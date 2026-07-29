@@ -59,6 +59,16 @@
 static M3GRenderContext s_context = NULL;
 static M3Gbool          s_bound   = M3G_FALSE;
 
+/*!
+ * \brief The context, brought up on first use.
+ *
+ * THIS IS WHERE THE RENDERER STARTS.  m3gPspGetInterface below reserves the
+ * video memory and runs m3gCreateInterface, which brings EGL and pspgl up (see
+ * the note in inc/M3G/m3g_psp.h).  Its only caller is m3gPspBindMemoryTarget,
+ * i.e. Graphics3D.bindTarget, which is a point the MIDlet has chosen to draw
+ * at -- not somewhere in the middle of PSPKVM painting its own 2D.  Nothing
+ * that merely constructs an M3G object may reach this.
+ */
 M3GRenderContext m3gPspGetContext(void)
 {
     if (s_context == NULL) {
@@ -77,7 +87,16 @@ M3GRenderContext m3gPspGetContext(void)
 
 static M3Gint m3gPspRenderError(M3GInterface m3g)
 {
-    M3Genum error = m3gGetError(m3g);
+    M3Genum error;
+
+    /* The callers all run behind a check that a context exists, which implies
+     * an interface -- but they now ask for it with m3gPspPeekInterface, whose
+     * whole point is that it may answer NULL, and m3gGetError dereferences its
+     * argument without checking. */
+    if (m3g == NULL) {
+        return M3G_PSP_ERR_NO_INTERFACE;
+    }
+    error = m3gGetError(m3g);
 
     switch (error) {
     case M3G_NO_ERROR:          return M3G_PSP_RENDER_OK;
@@ -90,7 +109,7 @@ static M3Gint m3gPspRenderError(M3GInterface m3g)
 
 M3Gint m3gPspTakeError(void)
 {
-    M3GInterface m3g = m3gPspGetInterface();
+    M3GInterface m3g = m3gPspPeekInterface();
     return (m3g != NULL) ? m3gPspRenderError(m3g) : M3G_PSP_ERR_NO_INTERFACE;
 }
 
@@ -125,7 +144,7 @@ M3Gint m3gPspBindMemoryTarget(void *pixels,
 
     /* Clear anything a previous operation left behind so what is read back
      * below belongs to this bind. */
-    m3gGetError(m3gPspGetInterface());
+    m3gGetError(m3gPspPeekInterface());
 
     bufferBits = (M3Gbitmask) M3G_COLOR_BUFFER_BIT;
     if (depthBuffer) {
@@ -152,7 +171,7 @@ M3Gint m3gPspBindMemoryTarget(void *pixels,
                         0);
 
     {
-        M3Gint err = m3gPspRenderError(m3gPspGetInterface());
+        M3Gint err = m3gPspRenderError(m3gPspPeekInterface());
         if (err != M3G_PSP_RENDER_OK) {
             return err;
         }
@@ -175,7 +194,7 @@ M3Gint m3gPspReleaseTarget(void)
     m3gReleaseTarget(ctx);
     s_bound = M3G_FALSE;
 
-    return m3gPspRenderError(m3gPspGetInterface());
+    return m3gPspRenderError(m3gPspPeekInterface());
 }
 
 M3Gint m3gPspIsBound(void)
@@ -218,7 +237,7 @@ M3Gint m3gPspClear(M3GObject background)
         return M3G_PSP_ERR_NOT_BOUND;
     }
     m3gClear(s_context, (M3GBackground) background);
-    return m3gPspRenderError(m3gPspGetInterface());
+    return m3gPspRenderError(m3gPspPeekInterface());
 }
 
 M3Gint m3gPspRenderWorld(M3GObject world)
@@ -230,7 +249,7 @@ M3Gint m3gPspRenderWorld(M3GObject world)
         return M3G_PSP_ERR_INVALID;
     }
     m3gRenderWorld(s_context, (M3GWorld) world);
-    return m3gPspRenderError(m3gPspGetInterface());
+    return m3gPspRenderError(m3gPspPeekInterface());
 }
 
 M3Gint m3gPspRenderNode(M3GObject node, const M3Gfloat *transform)
@@ -250,7 +269,7 @@ M3Gint m3gPspRenderNode(M3GObject node, const M3Gfloat *transform)
         m3gSetMatrixRows(&matrix, transform);
     }
     m3gRenderNode(s_context, (M3GNode) node, (transform != NULL) ? &matrix : NULL);
-    return m3gPspRenderError(m3gPspGetInterface());
+    return m3gPspRenderError(m3gPspPeekInterface());
 }
 
 M3Gint m3gPspRenderImmediate(M3GObject vertices,
@@ -279,7 +298,7 @@ M3Gint m3gPspRenderImmediate(M3GObject vertices,
               (transform != NULL) ? &matrix : NULL,
               1.0f,
               scope);
-    return m3gPspRenderError(m3gPspGetInterface());
+    return m3gPspRenderError(m3gPspPeekInterface());
 }
 
 M3Gint m3gPspSetCamera(M3GObject camera, const M3Gfloat *transform)
@@ -294,7 +313,7 @@ M3Gint m3gPspSetCamera(M3GObject camera, const M3Gfloat *transform)
     }
     m3gSetCamera(s_context, (M3GCamera) camera,
                  (transform != NULL) ? &matrix : NULL);
-    return m3gPspRenderError(m3gPspGetInterface());
+    return m3gPspRenderError(m3gPspPeekInterface());
 }
 
 M3Gint m3gPspAddLight(M3GObject light, const M3Gfloat *transform)
@@ -314,7 +333,7 @@ M3Gint m3gPspAddLight(M3GObject light, const M3Gfloat *transform)
     index = m3gAddLight(s_context, (M3GLight) light,
                         (transform != NULL) ? &matrix : NULL);
     if (index < 0) {
-        return m3gPspRenderError(m3gPspGetInterface());
+        return m3gPspRenderError(m3gPspPeekInterface());
     }
     return index;
 }

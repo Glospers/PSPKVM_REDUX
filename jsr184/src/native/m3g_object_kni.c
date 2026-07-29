@@ -124,15 +124,48 @@ static void m3gReportFailure(const char *what)
 /*!
  * \brief The interface to create an object on, announcing which class it is for.
  *
- * Every m3gCreate* call below takes its interface from here rather than from
- * m3gPspGetInterface directly, so the trace line lands *before* the engine
- * call: an argument is evaluated before the function it is passed to.
+ * PEEK, NEVER CREATE.  This is the whole reason the M3G object layer does not
+ * take the display down with it.
+ *
+ * m3gCreateInterface ends in m3gConfigureGL (m3gcore/src/m3g_interface.c:1679):
+ * it brings EGL up, makes a 2x2 pbuffer current, reads GL_MAX_TEXTURE_SIZE and
+ * friends off it and tears it down again -- and on this platform that is the
+ * moment pspgl starts and the video memory reservation happens.  Doing that
+ * from a constructor means starting the renderer at whatever point in its
+ * startup the MIDlet happens to write `new Background()`, which is while
+ * PSPKVM is still drawing its own 2D.  pspgl and PSPKVM's blit
+ * (javacall/implementation/psp_mips/midp/lcd.c:121-138) both drive the GE, and
+ * the display does not survive it: the MIDlet freezes on its loading screen
+ * with even the background animation stopped.
+ *
+ * So construction asks with m3gPspPeekInterface and simply does not build an
+ * engine object if the renderer is not up yet.  The object stays a Java-side
+ * placeholder with handle 0, which every method here already tolerates -- the
+ * same state the whole class library was in before this file existed.
+ *
+ * The trace says which of the two happened, so a log makes the difference
+ * visible rather than silent.
  */
 static M3GInterface m3gIface(const char *what)
 {
-    m3gTrace("new", what, 0);
-    return m3gPspGetInterface();
+    M3GInterface m3g = m3gPspPeekInterface();
+
+    m3gTrace((m3g != NULL) ? "new" : "defer", what, 0);
+    return m3g;
 }
+
+/*!
+ * \brief Creates an engine object, but only if there is an interface to make
+ *        it on.
+ *
+ * The conditional is load-bearing rather than defensive: m3gCreate* takes the
+ * interface as its first argument and dereferences it without a NULL check, so
+ * \a expr must not be evaluated at all when the renderer is down.  Writing it
+ * as a macro is what gets that short-circuit -- a function would have its
+ * arguments evaluated first.
+ */
+#define M3G_NEW(name, expr) \
+    (m3gIface(name) == NULL ? (jint) 0 : m3gOwn((name), (expr)))
 
 /*! \brief Takes the wrapper's reference on a freshly created object. */
 static jint m3gOwn(const char *what, void *object)
@@ -738,7 +771,7 @@ Java_javax_microedition_m3g_Node_nAlign()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Group_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Group", m3gCreateGroup(m3gIface("Group"))));
+    KNI_ReturnInt(M3G_NEW("Group", m3gCreateGroup(m3gPspPeekInterface())));
 }
 
 /* private static native void nAddChild(int group, int child); */
@@ -803,7 +836,7 @@ Java_javax_microedition_m3g_Group_nGetChild()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_World_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("World", m3gCreateWorld(m3gIface("World"))));
+    KNI_ReturnInt(M3G_NEW("World", m3gCreateWorld(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetActiveCamera(int world, int camera); */
@@ -840,7 +873,7 @@ Java_javax_microedition_m3g_World_nSetBackground()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Camera_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Camera", m3gCreateCamera(m3gIface("Camera"))));
+    KNI_ReturnInt(M3G_NEW("Camera", m3gCreateCamera(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetPerspective(int h, float fovy, float ar,
@@ -909,7 +942,7 @@ Java_javax_microedition_m3g_Camera_nSetGeneric()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Light_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Light", m3gCreateLight(m3gIface("Light"))));
+    KNI_ReturnInt(M3G_NEW("Light", m3gCreateLight(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetMode(int handle, int mode); */
@@ -1006,8 +1039,8 @@ Java_javax_microedition_m3g_Light_nSetAttenuation()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Background_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Background",
-                         m3gCreateBackground(m3gIface("Background"))));
+    KNI_ReturnInt(M3G_NEW("Background",
+                         m3gCreateBackground(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetColor(int handle, int argb); */
@@ -1098,7 +1131,7 @@ Java_javax_microedition_m3g_Background_nSetEnable()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Fog_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Fog", m3gCreateFog(m3gIface("Fog"))));
+    KNI_ReturnInt(M3G_NEW("Fog", m3gCreateFog(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetMode(int handle, int mode); */
@@ -1160,7 +1193,7 @@ Java_javax_microedition_m3g_Fog_nSetLinear()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Material_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Material", m3gCreateMaterial(m3gIface("Material"))));
+    KNI_ReturnInt(M3G_NEW("Material", m3gCreateMaterial(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetColor(int handle, int target, int argb); */
@@ -1212,8 +1245,8 @@ Java_javax_microedition_m3g_Material_nSetVertexColorTracking()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_PolygonMode_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("PolygonMode",
-                         m3gCreatePolygonMode(m3gIface("PolygonMode"))));
+    KNI_ReturnInt(M3G_NEW("PolygonMode",
+                         m3gCreatePolygonMode(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetCulling(int handle, int mode); */
@@ -1302,8 +1335,8 @@ Java_javax_microedition_m3g_PolygonMode_nSetPerspectiveCorrection()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_CompositingMode_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("CompositingMode",
-                         m3gCreateCompositingMode(m3gIface("CompositingMode"))));
+    KNI_ReturnInt(M3G_NEW("CompositingMode",
+                         m3gCreateCompositingMode(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetBlending(int handle, int mode); */
@@ -1409,8 +1442,8 @@ Java_javax_microedition_m3g_CompositingMode_nEnableAlphaWrite()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("Appearance",
-                         m3gCreateAppearance(m3gIface("Appearance"))));
+    KNI_ReturnInt(M3G_NEW("Appearance",
+                         m3gCreateAppearance(m3gPspPeekInterface())));
 }
 
 /* private static native void nSetLayer(int handle, int layer); */
@@ -1503,8 +1536,8 @@ Java_javax_microedition_m3g_Texture2D_nCreate()
     if (image == 0) {
         KNI_ReturnInt(0);
     }
-    KNI_ReturnInt(m3gOwn("Texture2D",
-                         m3gCreateTexture(m3gIface("Texture2D"),
+    KNI_ReturnInt(M3G_NEW("Texture2D",
+                         m3gCreateTexture(m3gPspPeekInterface(),
                                           (M3GImage) image)));
 }
 
@@ -1594,8 +1627,8 @@ Java_javax_microedition_m3g_Image2D_nCreate()
     jint height = KNI_GetParameterAsInt(3);
     jint flags  = KNI_GetParameterAsInt(4);
 
-    KNI_ReturnInt(m3gOwn("Image2D",
-                         m3gCreateImage(m3gIface("Image2D"),
+    KNI_ReturnInt(M3G_NEW("Image2D",
+                         m3gCreateImage(m3gPspPeekInterface(),
                                         (M3GImageFormat) format,
                                         width, height,
                                         (M3Gbitmask) flags)));
@@ -1730,8 +1763,8 @@ Java_javax_microedition_m3g_VertexArray_nCreate()
 
     M3Gdatatype type = (bytes == 1) ? M3G_BYTE : M3G_SHORT;
 
-    KNI_ReturnInt(m3gOwn("VertexArray",
-                         m3gCreateVertexArray(m3gIface("VertexArray"),
+    KNI_ReturnInt(M3G_NEW("VertexArray",
+                         m3gCreateVertexArray(m3gPspPeekInterface(),
                                               (M3Gsizei) count,
                                               size, type)));
 }
@@ -1802,8 +1835,8 @@ Java_javax_microedition_m3g_VertexArray_nSetShort()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_VertexBuffer_nCreate()
 {
-    KNI_ReturnInt(m3gOwn("VertexBuffer",
-                         m3gCreateVertexBuffer(m3gIface("VertexBuffer"))));
+    KNI_ReturnInt(M3G_NEW("VertexBuffer",
+                         m3gCreateVertexBuffer(m3gPspPeekInterface())));
 }
 
 /*
@@ -1932,9 +1965,9 @@ Java_javax_microedition_m3g_TriangleStripArray_nCreateImplicit()
     if (!KNI_IsNullHandle(lengths)) {
         const M3Gsizei *sl = (const M3Gsizei *) SNI_GetRawArrayPointer(lengths);
         if (sl != NULL) {
-            result = m3gOwn("TriangleStripArray",
+            result = M3G_NEW("TriangleStripArray",
                             m3gCreateImplicitStripBuffer(
-                                m3gIface("TriStripImplicit"),
+                                m3gPspPeekInterface(),
                                 (M3Gsizei) KNI_GetArrayLength(lengths),
                                 sl, firstIndex));
         }
@@ -1959,9 +1992,9 @@ Java_javax_microedition_m3g_TriangleStripArray_nCreateExplicit()
         const void     *idx = SNI_GetRawArrayPointer(indices);
         const M3Gsizei *sl  = (const M3Gsizei *) SNI_GetRawArrayPointer(lengths);
         if (idx != NULL && sl != NULL) {
-            result = m3gOwn("TriangleStripArray",
+            result = M3G_NEW("TriangleStripArray",
                             m3gCreateStripBuffer(
-                                m3gIface("TriStripExplicit"),
+                                m3gPspPeekInterface(),
                                 M3G_TRIANGLE_STRIPS,
                                 (M3Gsizei) KNI_GetArrayLength(lengths),
                                 sl,
@@ -2006,8 +2039,8 @@ Java_javax_microedition_m3g_Mesh_nCreate()
         M3GAppearance *ap = KNI_IsNullHandle(appearances)
             ? NULL : (M3GAppearance *) SNI_GetRawArrayPointer(appearances);
         if (ib != NULL) {
-            result = m3gOwn("Mesh",
-                            m3gCreateMesh(m3gIface("Mesh"),
+            result = M3G_NEW("Mesh",
+                            m3gCreateMesh(m3gPspPeekInterface(),
                                           (M3GVertexBuffer) vertices,
                                           ib, ap,
                                           (M3Gint) KNI_GetArrayLength(submeshes)));
@@ -2054,9 +2087,9 @@ Java_javax_microedition_m3g_SkinnedMesh_nCreate()
         M3GAppearance *ap = KNI_IsNullHandle(appearances)
             ? NULL : (M3GAppearance *) SNI_GetRawArrayPointer(appearances);
         if (ib != NULL) {
-            result = m3gOwn("SkinnedMesh",
+            result = M3G_NEW("SkinnedMesh",
                             m3gCreateSkinnedMesh(
-                                m3gIface("SkinnedMesh"),
+                                m3gPspPeekInterface(),
                                 (M3GVertexBuffer) vertices,
                                 ib, ap,
                                 (M3Gint) KNI_GetArrayLength(submeshes),
@@ -2114,9 +2147,9 @@ Java_javax_microedition_m3g_MorphingMesh_nCreate()
         M3GAppearance *ap = KNI_IsNullHandle(appearances)
             ? NULL : (M3GAppearance *) SNI_GetRawArrayPointer(appearances);
         if (tg != NULL && ib != NULL) {
-            result = m3gOwn("MorphingMesh",
+            result = M3G_NEW("MorphingMesh",
                             m3gCreateMorphingMesh(
-                                m3gIface("MorphingMesh"),
+                                m3gPspPeekInterface(),
                                 (M3GVertexBuffer) vertices,
                                 tg, ib, ap,
                                 (M3Gint) KNI_GetArrayLength(submeshes),
@@ -2168,8 +2201,8 @@ Java_javax_microedition_m3g_Sprite3D_nCreate()
     if (image == 0) {
         KNI_ReturnInt(0);
     }
-    KNI_ReturnInt(m3gOwn("Sprite3D",
-                         m3gCreateSprite(m3gIface("Sprite3D"),
+    KNI_ReturnInt(M3G_NEW("Sprite3D",
+                         m3gCreateSprite(m3gPspPeekInterface(),
                                          (M3Gbool) (scaled ? M3G_TRUE
                                                            : M3G_FALSE),
                                          (M3GImage) image,

@@ -60,9 +60,39 @@ extern "C" {
  * interface that created them, and objects from two different interfaces
  * cannot be linked into the same scene graph.
  *
+ * CREATING IT IS NOT CHEAP, AND NOT ALWAYS SAFE
+ *
+ * m3gCreateInterface ends in m3gConfigureGL (m3gcore/src/m3g_interface.c:1679),
+ * which brings EGL up, makes a 2x2 pbuffer current and reads the driver's
+ * limits back off it -- so the first call to this function starts pspgl and
+ * takes the video memory reservation with it.  That must not happen while
+ * PSPKVM is drawing its own 2D: pspgl and PSPKVM's blit (lcd.c) both drive the
+ * GE, and bringing the renderer up underneath the UI kills the display for
+ * good -- the symptom is a MIDlet frozen on its loading screen with the
+ * animation stopped, not just the game logic.
+ *
+ * So this is called from exactly two places, both of which were already doing
+ * it before the M3G object layer existed and are therefore known to be safe:
+ * binding a render target (m3gPspBindMemoryTarget) and parsing a file
+ * (m3gPspLoadFromMemory).  Anything that merely *creates an object* must use
+ * m3gPspPeekInterface instead.
+ *
  * \return the interface, or NULL if it could not be created
  */
 M3GInterface m3gPspGetInterface(void);
+
+/*!
+ * \brief The interface if it already exists, without ever creating one.
+ *
+ * The accessor for code that needs an interface but must not be the thing that
+ * starts the renderer -- in practice every m3gCreate* behind a public
+ * javax.microedition.m3g constructor.  A NULL return means "not up yet", and
+ * the caller must skip the creation rather than pass NULL to the engine, which
+ * would dereference it.
+ *
+ * \return the interface, or NULL if it has not been created yet
+ */
+M3GInterface m3gPspPeekInterface(void);
 
 /*!
  * \brief Parses one .m3g image out of memory.
