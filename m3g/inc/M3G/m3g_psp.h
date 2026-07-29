@@ -183,6 +183,22 @@ M3Gint m3gPspReleaseTarget(void);
 /*! \brief Non-zero while a target is bound. */
 M3Gint m3gPspIsBound(void);
 
+/*!
+ * \brief Non-zero once a render target has been bound at least once.
+ *
+ * The gate for building engine objects at all -- a different question from
+ * m3gPspIsBound, which asks whether one is bound right now.
+ *
+ * Creating an Image2D commits it, and committing uploads its texture there and
+ * then through GL (m3gcore/src/m3g_image.inl:146, :157, :190). Doing that
+ * before the MIDlet has ever entered a drawing window means driving the GE at
+ * an arbitrary point in its startup, while PSPKVM is still painting its own 2D
+ * with sceGu -- two users of one engine that do not coordinate. Objects a
+ * MIDlet constructs earlier than that are queued on the Java side and built by
+ * Object3D.flushDeferred at the first bind.
+ */
+M3Gint m3gPspRendererReady(void);
+
 /*! \brief Collects and clears the engine's error code. */
 M3Gint m3gPspTakeError(void);
 

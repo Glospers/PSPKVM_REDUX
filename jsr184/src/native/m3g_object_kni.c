@@ -220,7 +220,20 @@ static void m3gReportFailure(const char *what)
  */
 static M3GInterface m3gIface(const char *what)
 {
-    M3GInterface m3g = m3gPspPeekInterface();
+    /*
+     * Gated on a target having been bound, not merely on the interface
+     * existing.
+     *
+     * The interface comes up at the first Loader.load, which is well before
+     * the MIDlet draws anything. If construction were allowed from that point
+     * on, an Image2D built during startup would commit -- and committing
+     * uploads the texture immediately, through GL
+     * (m3gcore/src/m3g_image.inl:146, :157, :190). That drives the GE while
+     * PSPKVM is still painting its own 2D with sceGu, and the two do not
+     * coordinate. Waiting for a bind confines every engine object, and
+     * therefore every GL call, to a window the MIDlet asked to draw in.
+     */
+    M3GInterface m3g = m3gPspRendererReady() ? m3gPspPeekInterface() : NULL;
 
     m3gTrace((m3g != NULL) ? "new" : "defer", what, 0);
     return m3g;

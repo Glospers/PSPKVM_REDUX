@@ -60,6 +60,24 @@ static M3GRenderContext s_context = NULL;
 static M3Gbool          s_bound   = M3G_FALSE;
 
 /*!
+ * \brief Set once the first render target has been bound successfully.
+ *
+ * Not the same question as s_bound, which is "is one bound right now".  This
+ * one gates building engine objects at all: creating an Image2D commits it and
+ * commits upload the texture immediately, through GL
+ * (m3gcore/src/m3g_image.inl:146, :157, :190).  Doing that before a target has
+ * ever been bound means driving the GE from whatever point in its startup the
+ * MIDlet happens to construct a texture -- while PSPKVM is still painting its
+ * own 2D with sceGu, which is the one thing this port cannot do.
+ */
+static M3Gbool          s_everBound = M3G_FALSE;
+
+M3Gint m3gPspRendererReady(void)
+{
+    return s_everBound ? 1 : 0;
+}
+
+/*!
  * \brief The context, brought up on first use.
  *
  * THIS IS WHERE THE RENDERER STARTS.  m3gPspGetInterface below reserves the
@@ -178,6 +196,7 @@ M3Gint m3gPspBindMemoryTarget(void *pixels,
     }
 
     s_bound = M3G_TRUE;
+    s_everBound = M3G_TRUE;
     return M3G_PSP_RENDER_OK;
 }
 
