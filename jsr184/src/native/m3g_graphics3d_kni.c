@@ -66,9 +66,6 @@ extern unsigned short *javacall_lcd_get_screen(int screenType,
 
 extern void javacall_diag_log(const char *s) __attribute__((weak));
 
-/* One line per run for the things that only make sense once. */
-static int s_reportedOnce = 0;
-
 static void m3gLog(const char *what, jint a, jint b)
 {
     char line[128];
@@ -81,15 +78,42 @@ static void m3gLog(const char *what, jint a, jint b)
 }
 
 /*
- * Every log line is an open/write/close on the memory stick, so a trace of a
- * render loop has to be bounded or it becomes the thing being measured. This
- * budget is enough to see which entry points a title uses and in what order,
- * which is the question a blank viewport actually poses.
+ * MILESTONES
+ *
+ * Every log line is an open/write/close on the memory stick, and these entry
+ * points run per frame -- so a per-call trace here is a frame-rate experiment,
+ * not an observation.  What is actually worth knowing is binary and happens
+ * once: did a target ever bind, did a camera with a real handle ever reach the
+ * context, did a node ever draw, and did drawing ever fail.  Each of those is
+ * reported the first time it happens and never again, which is four writes for
+ * a whole session.
+ *
+ * Build with -DM3G_TRACE for the old per-call trace instead.
  */
-#define M3G_TRACE_BUDGET 120
+#define M3G_MILESTONE_BIND        0
+#define M3G_MILESTONE_CAMERA      1
+#define M3G_MILESTONE_RENDER_OK   2
+#define M3G_MILESTONE_RENDER_FAIL 3
+#define M3G_MILESTONE_COUNT       4
+
+static unsigned char s_milestone[M3G_MILESTONE_COUNT];
+
+/*! \brief Logs \a what the first time this milestone is reached. */
+static void m3gMilestone(int which, const char *what, jint a, jint b)
+{
+    if (s_milestone[which]) {
+        return;
+    }
+    s_milestone[which] = 1;
+    m3gLog(what, a, b);
+}
+
+#if defined(M3G_TRACE)
+
+#define M3G_TRACE_BUDGET 200
 static int s_traceLeft = M3G_TRACE_BUDGET;
 
-static void m3gTrace(const char *what, jint a, jint b)
+static void m3gTraceImpl(const char *what, jint a, jint b)
 {
     if (s_traceLeft <= 0) {
         return;
@@ -97,6 +121,14 @@ static void m3gTrace(const char *what, jint a, jint b)
     --s_traceLeft;
     m3gLog(what, a, b);
 }
+
+#define m3gTrace(what, a, b) m3gTraceImpl((what), (a), (b))
+
+#else
+
+#define m3gTrace(what, a, b) ((void) 0)
+
+#endif /* M3G_TRACE */
 
 /*----------------------------------------------------------------------
  * Transform marshalling
@@ -167,10 +199,7 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
         KNI_ReturnInt(result);
     }
 
-    if (!s_reportedOnce) {
-        s_reportedOnce = 1;
-        m3gLog("vram reserved", m3gPspGetReservedVram(), 0);
-    }
+    m3gMilestone(M3G_MILESTONE_BIND, "bind ok", width, height);
     m3gTrace("bind ok", width, height);
     KNI_ReturnInt((width << 16) | height);
 }
@@ -183,25 +212,10 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Graphics3D_nRelease()
 {
-    jint result;
-
-    /* Sample the target before and after the read-back. An unchanged marker
-     * means glReadPixels never landed; a zeroed one means it landed and the
-     * frame really is black. Only while the trace budget lasts, because this
-     * writes into the live screen buffer. */
-    if (s_traceLeft > 0) {
-        unsigned short *pixels;
-        int w = 0, h = 0, enc = 0;
-        pixels = javacall_lcd_get_screen(JAVACALL_LCD_SCREEN_PRIMARY,
-                                         &w, &h, &enc);
-        if (pixels != NULL && w > 0 && h > 0) {
-            pixels[(h / 2) * w + (w / 2)] = 0xF81F;   /* magenta marker */
-            result = m3gPspReleaseTarget();
-            m3gTrace("release px", result,
-                     (jint) pixels[(h / 2) * w + (w / 2)]);
-            KNI_ReturnInt(result);
-        }
-    }
+    /* The marker-pixel probe that used to live here -- stamp the centre of the
+     * target, read it back after glReadPixels and see whether it survived --
+     * has served its purpose: the read-back path is proven. It wrote into the
+     * live screen buffer, so it has no place in a build anyone plays. */
     KNI_ReturnInt(m3gPspReleaseTarget());
 }
 
@@ -298,6 +312,11 @@ Java_javax_microedition_m3g_Graphics3D_nRenderNode()
     KNI_EndHandles();
 
     result = m3gPspRenderNode((M3GObject) handle, transform);
+    m3gMilestone((result == M3G_PSP_RENDER_OK) ? M3G_MILESTONE_RENDER_OK
+                                               : M3G_MILESTONE_RENDER_FAIL,
+                 (result == M3G_PSP_RENDER_OK) ? "renderNode ok"
+                                               : "renderNode failed",
+                 handle, result);
     m3gTrace("renderNode", handle, result);
     KNI_ReturnInt(result);
 }
@@ -362,6 +381,9 @@ Java_javax_microedition_m3g_Graphics3D_nSetCamera()
     KNI_EndHandles();
 
     result = m3gPspSetCamera((M3GObject) handle, transform);
+    if (handle != 0) {
+        m3gMilestone(M3G_MILESTONE_CAMERA, "setCamera", handle, result);
+    }
     m3gTrace("setCamera", handle, result);
     KNI_ReturnInt(result);
 }

@@ -62,35 +62,39 @@
 /*----------------------------------------------------------------------
  * Diagnostics
  *
- * Same sink as the other two natives files, ms0:/pspkvm_vm.log, weak so a
- * build without docker/patches/0043 -- and the romgen host tool, which has no
+ * Sink is ms0:/pspkvm_vm.log via javacall_diag_log, declared weak so a build
+ * without docker/patches/0043 -- and the romgen host tool, which has no
  * javacall at all -- still links.
  *
- * Only *failures* are traced.  A scene is built out of hundreds of these calls
- * and every log line is an open/write/close on the memory stick, so tracing
- * successes would be the thing being measured.  A failed creation, on the
- * other hand, is almost always the arena running out, which is worth the
- * write; the counters go on the line so the size can be retuned without a
- * second run.
+ * THE PER-OBJECT TRACE IS COMPILED OUT BY DEFAULT, AND HAS TO BE.
+ *
+ * javacall_diag_log opens, writes and closes the file for every single line.
+ * That is the right shape for a report that has to survive a hang, and it is
+ * completely the wrong shape for anything that happens per object: a title
+ * that builds a few hundred meshes, vertex buffers and appearances turns two
+ * lines each into a thousand memory-stick round trips, and the trace stops
+ * being an observation of the frame rate and becomes the cause of it.  A
+ * MIDlet that merely looked slow with tracing on has been mistaken for a hung
+ * one more than once here.
+ *
+ * So: build with -DM3G_TRACE to get the per-object trace back.  Left off, the
+ * only things written are failures and a handful of one-shot milestones,
+ * which together cost a few writes for a whole run.
  *--------------------------------------------------------------------*/
 
 extern void javacall_diag_log(const char *s) __attribute__((weak));
 
-/*
- * Creation trace.  Bounded, because every line is an open/write/close on the
- * memory stick; a scene is built out of hundreds of these calls, so an
- * unbounded trace would be the thing being measured.  The budget covers a
- * MIDlet's startup, which is what a crash during scene construction needs.
- *
- * Each creation emits two lines -- "new <class>" before the engine call and
- * "made <class> <handle>" after -- so a crash *inside* m3gCreate* shows up as
- * a "new" with no "made" after it.
- */
-#define M3G_TRACE_BUDGET 160
-static int s_traceLeft = M3G_TRACE_BUDGET;
-static int s_created;
+#if defined(M3G_TRACE)
 
-static void m3gTrace(const char *tag, const char *what, jint value)
+/*
+ * Each creation emits two lines -- "new <class>" before the engine call and
+ * "made <class> <handle>" after -- so a fault *inside* m3gCreate* shows up as
+ * a "new" with no "made" after it.  Bounded even when enabled.
+ */
+#define M3G_TRACE_BUDGET 400
+static int s_traceLeft = M3G_TRACE_BUDGET;
+
+static void m3gTraceImpl(const char *tag, const char *what, jint value)
 {
     char line[128];
 
@@ -102,14 +106,39 @@ static void m3gTrace(const char *tag, const char *what, jint value)
     javacall_diag_log(line);
 }
 
+#define m3gTrace(tag, what, value) m3gTraceImpl((tag), (what), (value))
+
+#else
+
+/* Compiled out entirely: no call, no format, no write. */
+#define m3gTrace(tag, what, value) ((void) 0)
+
+#endif /* M3G_TRACE */
+
+static int s_created;
+
+/*
+ * Failures are always reported, tracing or not -- they are rare by definition,
+ * and a creation that silently returns nothing is the hardest kind of bug to
+ * see from the outside.  Capped so that an exhausted arena, which fails every
+ * subsequent creation, cannot turn the report into the per-object trace this
+ * file just went to the trouble of removing.
+ */
+#define M3G_FAILURE_REPORTS 4
+static int s_failuresLeft = M3G_FAILURE_REPORTS;
+
+/*! \brief One arena-corruption report per run; the first is the informative one. */
+static int s_arenaFaultReported;
+
 static void m3gReportFailure(const char *what)
 {
     M3GPspArenaStats st;
     char line[160];
 
-    if (javacall_diag_log == 0) {
+    if (javacall_diag_log == 0 || s_failuresLeft <= 0) {
         return;
     }
+    --s_failuresLeft;
     m3gPspArenaGetStats(&st);
     sprintf(line, "M3G: create %s FAILED arena used=%d peak=%d cap=%d fail=%d\n",
             what, (int) st.used, (int) st.peak,
@@ -176,13 +205,24 @@ static jint m3gOwn(const char *what, void *object)
     }
     m3gAddRef((M3GObject) object);
 
-    /* Sweep the arena every so often. If the engine is writing outside a block
+    /*
+     * Sweep the arena every so often. If the engine is writing outside a block
      * it owns, this names the fault long before the VM falls over somewhere
-     * unrelated -- which is exactly how the last corruption presented. */
-    if ((++s_created & 31) == 0) {
+     * unrelated -- which is exactly how the last corruption presented.
+     *
+     * The sweep is CPU only and the report is one line the first time, so both
+     * stay in a quiet build; a corrupted heap is precisely the thing nobody
+     * wants to find out about by inference. The interval is wide because the
+     * walk is O(blocks) and there are now thousands of objects.
+     */
+    if ((++s_created & 127) == 0) {
         M3Gint fault = m3gPspArenaVerify();
-        if (fault != M3G_PSP_ARENA_OK) {
-            m3gTrace("ARENA FAULT", what, fault);
+        if (fault != M3G_PSP_ARENA_OK && s_arenaFaultReported == 0
+            && javacall_diag_log != 0) {
+            char line[128];
+            s_arenaFaultReported = 1;
+            sprintf(line, "M3G: ARENA FAULT %s code=%d\n", what, (int) fault);
+            javacall_diag_log(line);
         }
     }
     m3gTrace("made", what, (jint) object);
@@ -305,22 +345,85 @@ Java_javax_microedition_m3g_Object3D_nAnimate()
     KNI_ReturnInt(m3gAnimate((M3GObject) handle, KNI_GetParameterAsInt(2)));
 }
 
+/*!
+ * \brief How many slots m3gDuplicate needs in its original/clone pair array.
+ *
+ * m3gObjectDuplicate records one (original, clone) pair for every object it
+ * clones (m3gcore/src/m3g_object.c:315-317). Cloning a node clones its whole
+ * subtree and nothing else -- appearances, vertex buffers and the rest are
+ * shared, not copied -- so the pair count is the subtree node count, and one
+ * for anything that is not a node. The headroom is deliberate: getting this
+ * too small writes off the end of the array, which is the failure mode being
+ * fixed here in the first place.
+ */
+static M3Gint m3gDuplicateSlots(M3GObject object)
+{
+    M3Gint nodes;
+
+    switch (m3gGetClass(object)) {
+    case M3G_CLASS_CAMERA:
+    case M3G_CLASS_GROUP:
+    case M3G_CLASS_WORLD:
+    case M3G_CLASS_LIGHT:
+    case M3G_CLASS_MESH:
+    case M3G_CLASS_MORPHING_MESH:
+    case M3G_CLASS_SKINNED_MESH:
+    case M3G_CLASS_SPRITE:
+        nodes = m3gGetSubtreeSize((M3GNode) object);
+        break;
+    default:
+        nodes = 1;
+        break;
+    }
+    if (nodes < 1) {
+        nodes = 1;
+    }
+    return 2 * (nodes + 8);
+}
+
 /*
  * private static native int nDuplicate(int handle);
  *
  * m3gDuplicate takes the deep copy the specification asks for, and the copy
  * comes back with a reference count of zero like anything else the engine
  * makes, so the wrapper takes its reference here.
+ *
+ * THE PAIR ARRAY IS NOT OPTIONAL.  m3gDuplicate's second argument looks like
+ * an out-parameter a caller with no interest in it could pass NULL for, and it
+ * is not: m3gObjectDuplicate writes `pairs[2*n]` and `pairs[2*n+1]` for every
+ * cloned object without checking (m3gcore/src/m3g_object.c:315), and
+ * updateDuplicateReferences then reads the same array back to re-point the
+ * clone's internal references at their copies. Passing NULL stores two
+ * pointers at address 0 per node and leaves the clone's references pointing
+ * into the original.
  */
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nDuplicate()
 {
     jint handle = KNI_GetParameterAsInt(1);
+    M3GObject *pairs;
+    M3Gint slots, i;
+    jint result;
 
     if (handle == 0) {
         KNI_ReturnInt(0);
     }
-    KNI_ReturnInt(m3gOwn("duplicate", m3gDuplicate((M3GObject) handle, NULL)));
+
+    slots = m3gDuplicateSlots((M3GObject) handle);
+    pairs = (M3GObject *) m3gPspArenaAlloc(
+                (M3Guint) slots * (M3Guint) sizeof(M3GObject));
+    if (pairs == NULL) {
+        m3gReportFailure("duplicate");
+        KNI_ReturnInt(0);
+    }
+    for (i = 0; i < slots; ++i) {
+        pairs[i] = NULL;
+    }
+
+    result = m3gOwn("duplicate", m3gDuplicate((M3GObject) handle, pairs));
+    m3gPspArenaFree(pairs);
+
+    KNI_ReturnInt(result);
 }
 
 /*

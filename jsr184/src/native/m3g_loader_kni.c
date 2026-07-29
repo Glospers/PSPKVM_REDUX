@@ -72,12 +72,27 @@ static void m3gReportArena(jint result)
 {
     M3GPspArenaStats st;
     char line[192];
+    static int reportedOnce;
 
     if (javacall_diag_log == 0) {
         return;
     }
 
     m3gPspArenaGetStats(&st);
+
+    /*
+     * A title loads dozens of scenes, and javacall_diag_log costs a whole
+     * open/write/close each time -- so in a quiet build this reports the first
+     * load (proof that loading works at all) and thereafter only a load that
+     * actually went wrong. -DM3G_TRACE restores the line-per-load behaviour,
+     * which is what you want when tracking the arena's growth.
+     */
+#if !defined(M3G_TRACE)
+    if (reportedOnce && result >= 0 && st.failures == 0 && st.corrupt == 0) {
+        return;
+    }
+#endif
+    reportedOnce = 1;
 
     sprintf(line,
             "M3G: load %d roots=%d arena used=%d peak=%d blk=%d cap=%d "
@@ -118,6 +133,7 @@ Java_javax_microedition_m3g_Loader_nLoadData()
     jint length = KNI_GetParameterAsInt(3);
     jint result;
 
+#if defined(M3G_TRACE)
     /* Entry marker. m3gReportArena below only runs once the parse is over, so
      * without this a load that never returns is indistinguishable from a load
      * that was never started. */
@@ -126,6 +142,7 @@ Java_javax_microedition_m3g_Loader_nLoadData()
         sprintf(begin, "M3G: load begin %d\n", (int) length);
         javacall_diag_log(begin);
     }
+#endif
 
     m3gDiscardPendingResult();
 
