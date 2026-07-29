@@ -233,10 +233,36 @@ static M3GInterface m3gIface(const char *what)
      * coordinate. Waiting for a bind confines every engine object, and
      * therefore every GL call, to a window the MIDlet asked to draw in.
      */
+#if defined(M3G_NO_OBJECT_CREATION)
+    /*
+     * BISECT SWITCH -- not a fix, and not meant to survive.
+     *
+     * Refusing every creation makes Object3D.handle stay 0 for everything a
+     * MIDlet constructs, which is exactly the state this class library was in
+     * on main. Everything else stays as built: all 158 natives are linked, the
+     * accessors still read through to the engine for objects Loader produced,
+     * the GL context is still held, video memory is still reserved at the
+     * watermark, the loader path is untouched.
+     *
+     * So a run with this defined answers one question and nothing else: is the
+     * memory corruption caused by building engine objects at all?
+     *
+     *   still corrupts -> object creation is not the writer, and the cause is
+     *                     in what the port does around the renderer
+     *   corruption gone -> it is object creation, and the next split is images
+     *                     and textures, which are the ones that upload via GL
+     *
+     * Remove -DM3G_NO_OBJECT_CREATION from jsr184/src/config/subsystem.gmk to
+     * turn the object layer back on.
+     */
+    m3gTrace("nocreate", what, 0);
+    return NULL;
+#else
     M3GInterface m3g = m3gPspRendererReady() ? m3gPspPeekInterface() : NULL;
 
     m3gTrace((m3g != NULL) ? "new" : "defer", what, 0);
     return m3g;
+#endif
 }
 
 /*!
@@ -465,6 +491,12 @@ Java_javax_microedition_m3g_Object3D_nDuplicate()
     if (handle == 0) {
         KNI_ReturnInt(0);
     }
+#if defined(M3G_NO_OBJECT_CREATION)
+    /* Duplicating builds a whole cloned subtree, which is object creation by
+     * another name -- and Object3D.duplicate() returned the original on main.
+     * The bisect is only clean if this is out too. */
+    KNI_ReturnInt(0);
+#endif
 
     slots = m3gDuplicateSlots((M3GObject) handle);
     pairs = (M3GObject *) m3gPspArenaAlloc(
