@@ -169,7 +169,7 @@ static void m3gCheckScreen(const char *what)
         return;
     }
     s_screenDead = 1;
-    sprintf(line, "M3G: SCREEN ZEROED after %s\n", what);
+    sprintf(line, "M3G: SCREEN DEAD at %s\n", what);
     javacall_diag_log(line);
 }
 
@@ -269,7 +269,7 @@ static jint m3gOwn(const char *what, void *object)
         }
     }
     m3gTrace("made", what, (jint) object);
-    m3gCheckScreen(what);
+    m3gCheckScreen(what);   /* "SCREEN DEAD at <Class>" = the creation did it */
     return (jint) object;
 }
 
@@ -328,6 +328,7 @@ static void m3gStoreMatrix(jobject array, const M3GMatrix *in)
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Object3D_nDeleteRef()
 {
+    m3gCheckScreen("Object3D_nDeleteRef");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -342,6 +343,7 @@ Java_javax_microedition_m3g_Object3D_nDeleteRef()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Object3D_nSetUserID()
 {
+    m3gCheckScreen("Object3D_nSetUserID");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -356,6 +358,7 @@ Java_javax_microedition_m3g_Object3D_nSetUserID()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nGetUserID()
 {
+    m3gCheckScreen("Object3D_nGetUserID");
     jint handle = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt((handle != 0) ? m3gGetUserID((M3GObject) handle) : 0);
@@ -370,6 +373,7 @@ Java_javax_microedition_m3g_Object3D_nGetUserID()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nClassID()
 {
+    m3gCheckScreen("Object3D_nClassID");
     jint handle = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt(m3gPspGetClassID((M3GObject) handle));
@@ -381,6 +385,7 @@ Java_javax_microedition_m3g_Object3D_nClassID()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nAnimate()
 {
+    m3gCheckScreen("Object3D_nAnimate");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -444,6 +449,7 @@ static M3Gint m3gDuplicateSlots(M3GObject object)
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nDuplicate()
 {
+    m3gCheckScreen("Object3D_nDuplicate");
     jint handle = KNI_GetParameterAsInt(1);
     M3GObject *pairs;
     M3Gint slots, i;
@@ -465,7 +471,7 @@ Java_javax_microedition_m3g_Object3D_nDuplicate()
     }
 
     result = m3gOwn("duplicate", m3gDuplicate((M3GObject) handle, pairs));
-    m3gCheckScreen("Object3D.duplicate");
+    m3gCheckScreen("after Object3D.duplicate");
     m3gPspArenaFree(pairs);
 
     KNI_ReturnInt(result);
@@ -477,6 +483,7 @@ Java_javax_microedition_m3g_Object3D_nDuplicate()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nGetAnimationTrackCount()
 {
+    m3gCheckScreen("Object3D_nGetAnimationTrackCount");
     jint handle = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt((handle != 0)
@@ -489,6 +496,7 @@ Java_javax_microedition_m3g_Object3D_nGetAnimationTrackCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nGetAnimationTrack()
 {
+    m3gCheckScreen("Object3D_nGetAnimationTrack");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -504,6 +512,7 @@ Java_javax_microedition_m3g_Object3D_nGetAnimationTrack()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Object3D_nAddAnimationTrack()
 {
+    m3gCheckScreen("Object3D_nAddAnimationTrack");
     jint handle = KNI_GetParameterAsInt(1);
     jint track  = KNI_GetParameterAsInt(2);
 
@@ -519,6 +528,7 @@ Java_javax_microedition_m3g_Object3D_nAddAnimationTrack()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Object3D_nRemoveAnimationTrack()
 {
+    m3gCheckScreen("Object3D_nRemoveAnimationTrack");
     jint handle = KNI_GetParameterAsInt(1);
     jint track  = KNI_GetParameterAsInt(2);
 
@@ -534,6 +544,7 @@ Java_javax_microedition_m3g_Object3D_nRemoveAnimationTrack()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nFind()
 {
+    m3gCheckScreen("Object3D_nFind");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -554,6 +565,7 @@ Java_javax_microedition_m3g_Object3D_nFind()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetTransform()
 {
+    m3gCheckScreen("Transformable_nSetTransform");
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
     M3Gbool have;
@@ -579,6 +591,7 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nGetTransform()
 {
+    m3gCheckScreen("Transformable_nGetTransform");
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
 
@@ -600,6 +613,7 @@ Java_javax_microedition_m3g_Transformable_nGetTransform()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nGetCompositeTransform()
 {
+    m3gCheckScreen("Transformable_nGetCompositeTransform");
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
 
@@ -621,6 +635,7 @@ Java_javax_microedition_m3g_Transformable_nGetCompositeTransform()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetTranslation()
 {
+    m3gCheckScreen("Transformable_nSetTranslation");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -636,6 +651,7 @@ Java_javax_microedition_m3g_Transformable_nSetTranslation()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nTranslate()
 {
+    m3gCheckScreen("Transformable_nTranslate");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -651,6 +667,7 @@ Java_javax_microedition_m3g_Transformable_nTranslate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetScale()
 {
+    m3gCheckScreen("Transformable_nSetScale");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -666,6 +683,7 @@ Java_javax_microedition_m3g_Transformable_nSetScale()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nScale()
 {
+    m3gCheckScreen("Transformable_nScale");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -681,6 +699,7 @@ Java_javax_microedition_m3g_Transformable_nScale()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetOrientation()
 {
+    m3gCheckScreen("Transformable_nSetOrientation");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -697,6 +716,7 @@ Java_javax_microedition_m3g_Transformable_nSetOrientation()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nPreRotate()
 {
+    m3gCheckScreen("Transformable_nPreRotate");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -713,6 +733,7 @@ Java_javax_microedition_m3g_Transformable_nPreRotate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nPostRotate()
 {
+    m3gCheckScreen("Transformable_nPostRotate");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -746,6 +767,7 @@ static M3Gfloat *m3gVectorOut(jobject array, jint minimum)
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nGetTranslation()
 {
+    m3gCheckScreen("Transformable_nGetTranslation");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -769,6 +791,7 @@ Java_javax_microedition_m3g_Transformable_nGetTranslation()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nGetScale()
 {
+    m3gCheckScreen("Transformable_nGetScale");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -792,6 +815,7 @@ Java_javax_microedition_m3g_Transformable_nGetScale()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nGetOrientation()
 {
+    m3gCheckScreen("Transformable_nGetOrientation");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -820,6 +844,7 @@ Java_javax_microedition_m3g_Transformable_nGetOrientation()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Node_nSetAlphaFactor()
 {
+    m3gCheckScreen("Node_nSetAlphaFactor");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -837,6 +862,7 @@ Java_javax_microedition_m3g_Node_nSetAlphaFactor()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Node_nEnable()
 {
+    m3gCheckScreen("Node_nEnable");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -851,6 +877,7 @@ Java_javax_microedition_m3g_Node_nEnable()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Node_nSetScope()
 {
+    m3gCheckScreen("Node_nSetScope");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -863,6 +890,7 @@ Java_javax_microedition_m3g_Node_nSetScope()
 KNIEXPORT KNI_RETURNTYPE_BOOLEAN
 Java_javax_microedition_m3g_Node_nGetTransformTo()
 {
+    m3gCheckScreen("Node_nGetTransformTo");
     jint handle = KNI_GetParameterAsInt(1);
     jint target = KNI_GetParameterAsInt(2);
     M3GMatrix matrix;
@@ -887,6 +915,7 @@ Java_javax_microedition_m3g_Node_nGetTransformTo()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Node_nSetAlignment()
 {
+    m3gCheckScreen("Node_nSetAlignment");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -903,6 +932,7 @@ Java_javax_microedition_m3g_Node_nSetAlignment()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Node_nAlign()
 {
+    m3gCheckScreen("Node_nAlign");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -919,6 +949,7 @@ Java_javax_microedition_m3g_Node_nAlign()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Group_nCreate()
 {
+    m3gCheckScreen("Group_nCreate");
     KNI_ReturnInt(M3G_NEW("Group", m3gCreateGroup(m3gPspPeekInterface())));
 }
 
@@ -926,6 +957,7 @@ Java_javax_microedition_m3g_Group_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Group_nAddChild()
 {
+    m3gCheckScreen("Group_nAddChild");
     jint group = KNI_GetParameterAsInt(1);
     jint child = KNI_GetParameterAsInt(2);
 
@@ -939,6 +971,7 @@ Java_javax_microedition_m3g_Group_nAddChild()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Group_nRemoveChild()
 {
+    m3gCheckScreen("Group_nRemoveChild");
     jint group = KNI_GetParameterAsInt(1);
     jint child = KNI_GetParameterAsInt(2);
 
@@ -959,6 +992,7 @@ Java_javax_microedition_m3g_Group_nRemoveChild()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Group_nGetChildCount()
 {
+    m3gCheckScreen("Group_nGetChildCount");
     jint group = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt((group != 0) ? m3gGetChildCount((M3GGroup) group) : 0);
@@ -967,6 +1001,7 @@ Java_javax_microedition_m3g_Group_nGetChildCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Group_nGetChild()
 {
+    m3gCheckScreen("Group_nGetChild");
     jint group = KNI_GetParameterAsInt(1);
 
     if (group == 0) {
@@ -984,6 +1019,7 @@ Java_javax_microedition_m3g_Group_nGetChild()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_World_nCreate()
 {
+    m3gCheckScreen("World_nCreate");
     KNI_ReturnInt(M3G_NEW("World", m3gCreateWorld(m3gPspPeekInterface())));
 }
 
@@ -991,6 +1027,7 @@ Java_javax_microedition_m3g_World_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_World_nSetActiveCamera()
 {
+    m3gCheckScreen("World_nSetActiveCamera");
     jint world = KNI_GetParameterAsInt(1);
 
     if (world != 0) {
@@ -1004,6 +1041,7 @@ Java_javax_microedition_m3g_World_nSetActiveCamera()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_World_nSetBackground()
 {
+    m3gCheckScreen("World_nSetBackground");
     jint world = KNI_GetParameterAsInt(1);
 
     if (world != 0) {
@@ -1021,6 +1059,7 @@ Java_javax_microedition_m3g_World_nSetBackground()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Camera_nCreate()
 {
+    m3gCheckScreen("Camera_nCreate");
     KNI_ReturnInt(M3G_NEW("Camera", m3gCreateCamera(m3gPspPeekInterface())));
 }
 
@@ -1029,6 +1068,7 @@ Java_javax_microedition_m3g_Camera_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Camera_nSetPerspective()
 {
+    m3gCheckScreen("Camera_nSetPerspective");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1046,6 +1086,7 @@ Java_javax_microedition_m3g_Camera_nSetPerspective()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Camera_nSetParallel()
 {
+    m3gCheckScreen("Camera_nSetParallel");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1062,6 +1103,7 @@ Java_javax_microedition_m3g_Camera_nSetParallel()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Camera_nSetGeneric()
 {
+    m3gCheckScreen("Camera_nSetGeneric");
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
     M3Gbool have;
@@ -1090,6 +1132,7 @@ Java_javax_microedition_m3g_Camera_nSetGeneric()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Light_nCreate()
 {
+    m3gCheckScreen("Light_nCreate");
     KNI_ReturnInt(M3G_NEW("Light", m3gCreateLight(m3gPspPeekInterface())));
 }
 
@@ -1097,6 +1140,7 @@ Java_javax_microedition_m3g_Light_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Light_nSetMode()
 {
+    m3gCheckScreen("Light_nSetMode");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1109,6 +1153,7 @@ Java_javax_microedition_m3g_Light_nSetMode()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Light_nSetColor()
 {
+    m3gCheckScreen("Light_nSetColor");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1122,6 +1167,7 @@ Java_javax_microedition_m3g_Light_nSetColor()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Light_nSetIntensity()
 {
+    m3gCheckScreen("Light_nSetIntensity");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1135,6 +1181,7 @@ Java_javax_microedition_m3g_Light_nSetIntensity()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Light_nSetSpotAngle()
 {
+    m3gCheckScreen("Light_nSetSpotAngle");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1148,6 +1195,7 @@ Java_javax_microedition_m3g_Light_nSetSpotAngle()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Light_nSetSpotExponent()
 {
+    m3gCheckScreen("Light_nSetSpotExponent");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1161,6 +1209,7 @@ Java_javax_microedition_m3g_Light_nSetSpotExponent()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Light_nSetAttenuation()
 {
+    m3gCheckScreen("Light_nSetAttenuation");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1187,6 +1236,7 @@ Java_javax_microedition_m3g_Light_nSetAttenuation()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Background_nCreate()
 {
+    m3gCheckScreen("Background_nCreate");
     KNI_ReturnInt(M3G_NEW("Background",
                          m3gCreateBackground(m3gPspPeekInterface())));
 }
@@ -1195,6 +1245,7 @@ Java_javax_microedition_m3g_Background_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Background_nSetColor()
 {
+    m3gCheckScreen("Background_nSetColor");
     m3gTrace("call", "Background.nSetColor", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
@@ -1209,6 +1260,7 @@ Java_javax_microedition_m3g_Background_nSetColor()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Background_nSetImage()
 {
+    m3gCheckScreen("Background_nSetImage");
     m3gTrace("call", "Background.nSetImage", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
@@ -1223,6 +1275,7 @@ Java_javax_microedition_m3g_Background_nSetImage()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Background_nSetImageMode()
 {
+    m3gCheckScreen("Background_nSetImageMode");
     m3gTrace("call", "Background.nSetImageMode", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
@@ -1238,6 +1291,7 @@ Java_javax_microedition_m3g_Background_nSetImageMode()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Background_nSetCrop()
 {
+    m3gCheckScreen("Background_nSetCrop");
     m3gTrace("call", "Background.nSetCrop", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
@@ -1259,6 +1313,7 @@ Java_javax_microedition_m3g_Background_nSetCrop()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Background_nSetEnable()
 {
+    m3gCheckScreen("Background_nSetEnable");
     m3gTrace("call", "Background.nSetEnable", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
@@ -1279,6 +1334,7 @@ Java_javax_microedition_m3g_Background_nSetEnable()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Fog_nCreate()
 {
+    m3gCheckScreen("Fog_nCreate");
     KNI_ReturnInt(M3G_NEW("Fog", m3gCreateFog(m3gPspPeekInterface())));
 }
 
@@ -1286,6 +1342,7 @@ Java_javax_microedition_m3g_Fog_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Fog_nSetMode()
 {
+    m3gCheckScreen("Fog_nSetMode");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1298,6 +1355,7 @@ Java_javax_microedition_m3g_Fog_nSetMode()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Fog_nSetColor()
 {
+    m3gCheckScreen("Fog_nSetColor");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1310,6 +1368,7 @@ Java_javax_microedition_m3g_Fog_nSetColor()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Fog_nSetDensity()
 {
+    m3gCheckScreen("Fog_nSetDensity");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1323,6 +1382,7 @@ Java_javax_microedition_m3g_Fog_nSetDensity()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Fog_nSetLinear()
 {
+    m3gCheckScreen("Fog_nSetLinear");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1341,6 +1401,7 @@ Java_javax_microedition_m3g_Fog_nSetLinear()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Material_nCreate()
 {
+    m3gCheckScreen("Material_nCreate");
     KNI_ReturnInt(M3G_NEW("Material", m3gCreateMaterial(m3gPspPeekInterface())));
 }
 
@@ -1348,6 +1409,7 @@ Java_javax_microedition_m3g_Material_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Material_nSetColor()
 {
+    m3gCheckScreen("Material_nSetColor");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1362,6 +1424,7 @@ Java_javax_microedition_m3g_Material_nSetColor()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Material_nSetShininess()
 {
+    m3gCheckScreen("Material_nSetShininess");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1375,6 +1438,7 @@ Java_javax_microedition_m3g_Material_nSetShininess()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Material_nSetVertexColorTracking()
 {
+    m3gCheckScreen("Material_nSetVertexColorTracking");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1393,6 +1457,7 @@ Java_javax_microedition_m3g_Material_nSetVertexColorTracking()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_PolygonMode_nCreate()
 {
+    m3gCheckScreen("PolygonMode_nCreate");
     KNI_ReturnInt(M3G_NEW("PolygonMode",
                          m3gCreatePolygonMode(m3gPspPeekInterface())));
 }
@@ -1401,6 +1466,7 @@ Java_javax_microedition_m3g_PolygonMode_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_PolygonMode_nSetCulling()
 {
+    m3gCheckScreen("PolygonMode_nSetCulling");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1413,6 +1479,7 @@ Java_javax_microedition_m3g_PolygonMode_nSetCulling()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_PolygonMode_nSetShading()
 {
+    m3gCheckScreen("PolygonMode_nSetShading");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1425,6 +1492,7 @@ Java_javax_microedition_m3g_PolygonMode_nSetShading()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_PolygonMode_nSetWinding()
 {
+    m3gCheckScreen("PolygonMode_nSetWinding");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1437,6 +1505,7 @@ Java_javax_microedition_m3g_PolygonMode_nSetWinding()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_PolygonMode_nSetTwoSidedLighting()
 {
+    m3gCheckScreen("PolygonMode_nSetTwoSidedLighting");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1451,6 +1520,7 @@ Java_javax_microedition_m3g_PolygonMode_nSetTwoSidedLighting()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_PolygonMode_nSetLocalCameraLighting()
 {
+    m3gCheckScreen("PolygonMode_nSetLocalCameraLighting");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1465,6 +1535,7 @@ Java_javax_microedition_m3g_PolygonMode_nSetLocalCameraLighting()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_PolygonMode_nSetPerspectiveCorrection()
 {
+    m3gCheckScreen("PolygonMode_nSetPerspectiveCorrection");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1483,6 +1554,7 @@ Java_javax_microedition_m3g_PolygonMode_nSetPerspectiveCorrection()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_CompositingMode_nCreate()
 {
+    m3gCheckScreen("CompositingMode_nCreate");
     KNI_ReturnInt(M3G_NEW("CompositingMode",
                          m3gCreateCompositingMode(m3gPspPeekInterface())));
 }
@@ -1491,6 +1563,7 @@ Java_javax_microedition_m3g_CompositingMode_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nSetBlending()
 {
+    m3gCheckScreen("CompositingMode_nSetBlending");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1503,6 +1576,7 @@ Java_javax_microedition_m3g_CompositingMode_nSetBlending()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nSetAlphaThreshold()
 {
+    m3gCheckScreen("CompositingMode_nSetAlphaThreshold");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1516,6 +1590,7 @@ Java_javax_microedition_m3g_CompositingMode_nSetAlphaThreshold()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nSetDepthOffset()
 {
+    m3gCheckScreen("CompositingMode_nSetDepthOffset");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1530,6 +1605,7 @@ Java_javax_microedition_m3g_CompositingMode_nSetDepthOffset()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nEnableDepthTest()
 {
+    m3gCheckScreen("CompositingMode_nEnableDepthTest");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1544,6 +1620,7 @@ Java_javax_microedition_m3g_CompositingMode_nEnableDepthTest()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nEnableDepthWrite()
 {
+    m3gCheckScreen("CompositingMode_nEnableDepthWrite");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1558,6 +1635,7 @@ Java_javax_microedition_m3g_CompositingMode_nEnableDepthWrite()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nEnableColorWrite()
 {
+    m3gCheckScreen("CompositingMode_nEnableColorWrite");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1572,6 +1650,7 @@ Java_javax_microedition_m3g_CompositingMode_nEnableColorWrite()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_CompositingMode_nEnableAlphaWrite()
 {
+    m3gCheckScreen("CompositingMode_nEnableAlphaWrite");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1590,6 +1669,7 @@ Java_javax_microedition_m3g_CompositingMode_nEnableAlphaWrite()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nCreate()
 {
+    m3gCheckScreen("Appearance_nCreate");
     KNI_ReturnInt(M3G_NEW("Appearance",
                          m3gCreateAppearance(m3gPspPeekInterface())));
 }
@@ -1598,6 +1678,7 @@ Java_javax_microedition_m3g_Appearance_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetLayer()
 {
+    m3gCheckScreen("Appearance_nSetLayer");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1610,6 +1691,7 @@ Java_javax_microedition_m3g_Appearance_nSetLayer()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetMaterial()
 {
+    m3gCheckScreen("Appearance_nSetMaterial");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1623,6 +1705,7 @@ Java_javax_microedition_m3g_Appearance_nSetMaterial()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetPolygonMode()
 {
+    m3gCheckScreen("Appearance_nSetPolygonMode");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1636,6 +1719,7 @@ Java_javax_microedition_m3g_Appearance_nSetPolygonMode()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetCompositingMode()
 {
+    m3gCheckScreen("Appearance_nSetCompositingMode");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1649,6 +1733,7 @@ Java_javax_microedition_m3g_Appearance_nSetCompositingMode()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetFog()
 {
+    m3gCheckScreen("Appearance_nSetFog");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1661,6 +1746,7 @@ Java_javax_microedition_m3g_Appearance_nSetFog()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetTexture()
 {
+    m3gCheckScreen("Appearance_nSetTexture");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1679,6 +1765,7 @@ Java_javax_microedition_m3g_Appearance_nSetTexture()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Texture2D_nCreate()
 {
+    m3gCheckScreen("Texture2D_nCreate");
     jint image = KNI_GetParameterAsInt(1);
 
     if (image == 0) {
@@ -1693,6 +1780,7 @@ Java_javax_microedition_m3g_Texture2D_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Texture2D_nSetImage()
 {
+    m3gCheckScreen("Texture2D_nSetImage");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1706,6 +1794,7 @@ Java_javax_microedition_m3g_Texture2D_nSetImage()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Texture2D_nSetFiltering()
 {
+    m3gCheckScreen("Texture2D_nSetFiltering");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1720,6 +1809,7 @@ Java_javax_microedition_m3g_Texture2D_nSetFiltering()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Texture2D_nSetWrapping()
 {
+    m3gCheckScreen("Texture2D_nSetWrapping");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1734,6 +1824,7 @@ Java_javax_microedition_m3g_Texture2D_nSetWrapping()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Texture2D_nSetBlending()
 {
+    m3gCheckScreen("Texture2D_nSetBlending");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1746,6 +1837,7 @@ Java_javax_microedition_m3g_Texture2D_nSetBlending()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Texture2D_nSetBlendColor()
 {
+    m3gCheckScreen("Texture2D_nSetBlendColor");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1770,6 +1862,7 @@ Java_javax_microedition_m3g_Texture2D_nSetBlendColor()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Image2D_nCreate()
 {
+    m3gCheckScreen("Image2D_nCreate");
     jint format = KNI_GetParameterAsInt(1);
     jint width  = KNI_GetParameterAsInt(2);
     jint height = KNI_GetParameterAsInt(3);
@@ -1795,6 +1888,7 @@ Java_javax_microedition_m3g_Image2D_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Image2D_nSetImage()
 {
+    m3gCheckScreen("Image2D_nSetImage");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -1813,7 +1907,7 @@ Java_javax_microedition_m3g_Image2D_nSetImage()
                            m3gGetHeight((M3GImage) handle),
                            KNI_GetArrayLength(pixels),
                            src);
-            m3gCheckScreen("Image2D.setImage");
+            m3gCheckScreen("after Image2D.setImage");
         }
     }
     KNI_EndHandles();
@@ -1825,6 +1919,7 @@ Java_javax_microedition_m3g_Image2D_nSetImage()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Image2D_nSetPalette()
 {
+    m3gCheckScreen("Image2D_nSetPalette");
     jint handle = KNI_GetParameterAsInt(1);
     jint length = KNI_GetParameterAsInt(2);
 
@@ -1839,7 +1934,7 @@ Java_javax_microedition_m3g_Image2D_nSetPalette()
         const void *src = SNI_GetRawArrayPointer(palette);
         if (src != NULL) {
             m3gSetImagePalette((M3GImage) handle, length, src);
-            m3gCheckScreen("Image2D.setPalette");
+            m3gCheckScreen("after Image2D.setPalette");
         }
     }
     KNI_EndHandles();
@@ -1855,6 +1950,7 @@ Java_javax_microedition_m3g_Image2D_nSetPalette()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Image2D_nSetSubImage()
 {
+    m3gCheckScreen("Image2D_nSetSubImage");
     jint handle = KNI_GetParameterAsInt(1);
     jint x      = KNI_GetParameterAsInt(2);
     jint y      = KNI_GetParameterAsInt(3);
@@ -1873,7 +1969,7 @@ Java_javax_microedition_m3g_Image2D_nSetSubImage()
         if (src != NULL) {
             m3gSetSubImage((M3GImage) handle, x, y, width, height,
                            KNI_GetArrayLength(pixels), src);
-            m3gCheckScreen("Image2D.setSubImage");
+            m3gCheckScreen("after Image2D.setSubImage");
         }
     }
     KNI_EndHandles();
@@ -1885,6 +1981,7 @@ Java_javax_microedition_m3g_Image2D_nSetSubImage()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Image2D_nCommit()
 {
+    m3gCheckScreen("Image2D_nCommit");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -1908,6 +2005,7 @@ Java_javax_microedition_m3g_Image2D_nCommit()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_VertexArray_nCreate()
 {
+    m3gCheckScreen("VertexArray_nCreate");
     jint count = KNI_GetParameterAsInt(1);
     jint size  = KNI_GetParameterAsInt(2);
     jint bytes = KNI_GetParameterAsInt(3);
@@ -1924,6 +2022,7 @@ Java_javax_microedition_m3g_VertexArray_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexArray_nSetByte()
 {
+    m3gCheckScreen("VertexArray_nSetByte");
     jint handle = KNI_GetParameterAsInt(1);
     jint first  = KNI_GetParameterAsInt(2);
     jint count  = KNI_GetParameterAsInt(3);
@@ -1942,7 +2041,7 @@ Java_javax_microedition_m3g_VertexArray_nSetByte()
                                       first, (M3Gsizei) count,
                                       (M3Gsizei) KNI_GetArrayLength(values),
                                       M3G_BYTE, src);
-            m3gCheckScreen("VertexArray.setByte");
+            m3gCheckScreen("after VertexArray.setByte");
         }
     }
     KNI_EndHandles();
@@ -1954,6 +2053,7 @@ Java_javax_microedition_m3g_VertexArray_nSetByte()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexArray_nSetShort()
 {
+    m3gCheckScreen("VertexArray_nSetShort");
     jint handle = KNI_GetParameterAsInt(1);
     jint first  = KNI_GetParameterAsInt(2);
     jint count  = KNI_GetParameterAsInt(3);
@@ -1972,7 +2072,7 @@ Java_javax_microedition_m3g_VertexArray_nSetShort()
                                       first, (M3Gsizei) count,
                                       (M3Gsizei) KNI_GetArrayLength(values),
                                       M3G_SHORT, src);
-            m3gCheckScreen("VertexArray.setShort");
+            m3gCheckScreen("after VertexArray.setShort");
         }
     }
     KNI_EndHandles();
@@ -1988,6 +2088,7 @@ Java_javax_microedition_m3g_VertexArray_nSetShort()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_VertexBuffer_nCreate()
 {
+    m3gCheckScreen("VertexBuffer_nCreate");
     KNI_ReturnInt(M3G_NEW("VertexBuffer",
                          m3gCreateVertexBuffer(m3gPspPeekInterface())));
 }
@@ -1999,6 +2100,7 @@ Java_javax_microedition_m3g_VertexBuffer_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexBuffer_nSetPositions()
 {
+    m3gCheckScreen("VertexBuffer_nSetPositions");
     jint    handle = KNI_GetParameterAsInt(1);
     jint    array  = KNI_GetParameterAsInt(2);
     M3Gfloat scale = (M3Gfloat) KNI_GetParameterAsFloat(3);
@@ -2019,7 +2121,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetPositions()
         }
         m3gSetVertexArray((M3GVertexBuffer) handle,
                           (M3GVertexArray) array, scale, b, n);
-        m3gCheckScreen("VertexBuffer.setPositions");
+        m3gCheckScreen("after VertexBuffer.setPositions");
     }
     KNI_EndHandles();
 
@@ -2030,6 +2132,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetPositions()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexBuffer_nSetNormals()
 {
+    m3gCheckScreen("VertexBuffer_nSetNormals");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2043,6 +2146,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetNormals()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexBuffer_nSetColors()
 {
+    m3gCheckScreen("VertexBuffer_nSetColors");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2059,6 +2163,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetColors()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexBuffer_nSetTexCoords()
 {
+    m3gCheckScreen("VertexBuffer_nSetTexCoords");
     jint     handle = KNI_GetParameterAsInt(1);
     jint     unit   = KNI_GetParameterAsInt(2);
     jint     array  = KNI_GetParameterAsInt(3);
@@ -2080,7 +2185,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetTexCoords()
         }
         m3gSetTexCoordArray((M3GVertexBuffer) handle, unit,
                             (M3GVertexArray) array, scale, b, n);
-        m3gCheckScreen("VertexBuffer.setTexCoords");
+        m3gCheckScreen("after VertexBuffer.setTexCoords");
     }
     KNI_EndHandles();
 
@@ -2091,6 +2196,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetTexCoords()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_VertexBuffer_nSetDefaultColor()
 {
+    m3gCheckScreen("VertexBuffer_nSetDefaultColor");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2111,6 +2217,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetDefaultColor()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_TriangleStripArray_nCreateImplicit()
 {
+    m3gCheckScreen("TriangleStripArray_nCreateImplicit");
     jint firstIndex = KNI_GetParameterAsInt(1);
     jint result = 0;
 
@@ -2136,6 +2243,7 @@ Java_javax_microedition_m3g_TriangleStripArray_nCreateImplicit()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_TriangleStripArray_nCreateExplicit()
 {
+    m3gCheckScreen("TriangleStripArray_nCreateExplicit");
     jint result = 0;
 
     KNI_StartHandles(2);
@@ -2180,6 +2288,7 @@ Java_javax_microedition_m3g_TriangleStripArray_nCreateExplicit()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nCreate()
 {
+    m3gCheckScreen("Mesh_nCreate");
     jint vertices = KNI_GetParameterAsInt(1);
     jint result = 0;
 
@@ -2210,6 +2319,7 @@ Java_javax_microedition_m3g_Mesh_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Mesh_nSetAppearance()
 {
+    m3gCheckScreen("Mesh_nSetAppearance");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2227,6 +2337,7 @@ Java_javax_microedition_m3g_Mesh_nSetAppearance()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_SkinnedMesh_nCreate()
 {
+    m3gCheckScreen("SkinnedMesh_nCreate");
     jint vertices = KNI_GetParameterAsInt(1);
     jint skeleton = KNI_GetParameterAsInt(4);
     jint result = 0;
@@ -2263,6 +2374,7 @@ Java_javax_microedition_m3g_SkinnedMesh_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_SkinnedMesh_nAddTransform()
 {
+    m3gCheckScreen("SkinnedMesh_nAddTransform");
     jint handle = KNI_GetParameterAsInt(1);
     jint bone   = KNI_GetParameterAsInt(2);
 
@@ -2283,6 +2395,7 @@ Java_javax_microedition_m3g_SkinnedMesh_nAddTransform()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_MorphingMesh_nCreate()
 {
+    m3gCheckScreen("MorphingMesh_nCreate");
     jint vertices = KNI_GetParameterAsInt(1);
     jint result = 0;
 
@@ -2320,6 +2433,7 @@ Java_javax_microedition_m3g_MorphingMesh_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_MorphingMesh_nSetWeights()
 {
+    m3gCheckScreen("MorphingMesh_nSetWeights");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -2334,7 +2448,7 @@ Java_javax_microedition_m3g_MorphingMesh_nSetWeights()
         if (w != NULL) {
             m3gSetWeights((M3GMorphingMesh) handle, w,
                           (M3Gint) KNI_GetArrayLength(weights));
-            m3gCheckScreen("MorphingMesh.setWeights");
+            m3gCheckScreen("after MorphingMesh.setWeights");
         }
     }
     KNI_EndHandles();
@@ -2350,6 +2464,7 @@ Java_javax_microedition_m3g_MorphingMesh_nSetWeights()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Sprite3D_nCreate()
 {
+    m3gCheckScreen("Sprite3D_nCreate");
     jint scaled     = KNI_GetParameterAsInt(1);
     jint image      = KNI_GetParameterAsInt(2);
     jint appearance = KNI_GetParameterAsInt(3);
@@ -2369,6 +2484,7 @@ Java_javax_microedition_m3g_Sprite3D_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Sprite3D_nSetImage()
 {
+    m3gCheckScreen("Sprite3D_nSetImage");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2382,6 +2498,7 @@ Java_javax_microedition_m3g_Sprite3D_nSetImage()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Sprite3D_nSetAppearance()
 {
+    m3gCheckScreen("Sprite3D_nSetAppearance");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2395,6 +2512,7 @@ Java_javax_microedition_m3g_Sprite3D_nSetAppearance()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Sprite3D_nSetCrop()
 {
+    m3gCheckScreen("Sprite3D_nSetCrop");
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2426,6 +2544,7 @@ Java_javax_microedition_m3g_Sprite3D_nSetCrop()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_World_nGetActiveCamera()
 {
+    m3gCheckScreen("World_nGetActiveCamera");
     jint world = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((world != 0) ? (jint) m3gGetActiveCamera((M3GWorld) world) : 0);
 }
@@ -2433,6 +2552,7 @@ Java_javax_microedition_m3g_World_nGetActiveCamera()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_World_nGetBackground()
 {
+    m3gCheckScreen("World_nGetBackground");
     jint world = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((world != 0) ? (jint) m3gGetBackground((M3GWorld) world) : 0);
 }
@@ -2442,6 +2562,7 @@ Java_javax_microedition_m3g_World_nGetBackground()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Node_nGetParent()
 {
+    m3gCheckScreen("Node_nGetParent");
     jint node = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((node != 0) ? (jint) m3gGetParent((M3GNode) node) : 0);
 }
@@ -2451,6 +2572,7 @@ Java_javax_microedition_m3g_Node_nGetParent()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetSubmeshCount()
 {
+    m3gCheckScreen("Mesh_nGetSubmeshCount");
     jint mesh = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((mesh != 0) ? m3gGetSubmeshCount((M3GMesh) mesh) : 0);
 }
@@ -2458,6 +2580,7 @@ Java_javax_microedition_m3g_Mesh_nGetSubmeshCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetVertexBuffer()
 {
+    m3gCheckScreen("Mesh_nGetVertexBuffer");
     jint mesh = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((mesh != 0) ? (jint) m3gGetVertexBuffer((M3GMesh) mesh) : 0);
 }
@@ -2465,6 +2588,7 @@ Java_javax_microedition_m3g_Mesh_nGetVertexBuffer()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetIndexBuffer()
 {
+    m3gCheckScreen("Mesh_nGetIndexBuffer");
     jint mesh = KNI_GetParameterAsInt(1);
     if (mesh == 0) {
         KNI_ReturnInt(0);
@@ -2476,6 +2600,7 @@ Java_javax_microedition_m3g_Mesh_nGetIndexBuffer()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetAppearance()
 {
+    m3gCheckScreen("Mesh_nGetAppearance");
     jint mesh = KNI_GetParameterAsInt(1);
     if (mesh == 0) {
         KNI_ReturnInt(0);
@@ -2489,6 +2614,7 @@ Java_javax_microedition_m3g_Mesh_nGetAppearance()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetMaterial()
 {
+    m3gCheckScreen("Appearance_nGetMaterial");
     jint a = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((a != 0) ? (jint) m3gGetMaterial((M3GAppearance) a) : 0);
 }
@@ -2496,6 +2622,7 @@ Java_javax_microedition_m3g_Appearance_nGetMaterial()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetPolygonMode()
 {
+    m3gCheckScreen("Appearance_nGetPolygonMode");
     jint a = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((a != 0) ? (jint) m3gGetPolygonMode((M3GAppearance) a) : 0);
 }
@@ -2503,6 +2630,7 @@ Java_javax_microedition_m3g_Appearance_nGetPolygonMode()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetCompositingMode()
 {
+    m3gCheckScreen("Appearance_nGetCompositingMode");
     jint a = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((a != 0) ? (jint) m3gGetCompositingMode((M3GAppearance) a) : 0);
 }
@@ -2510,6 +2638,7 @@ Java_javax_microedition_m3g_Appearance_nGetCompositingMode()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetFog()
 {
+    m3gCheckScreen("Appearance_nGetFog");
     jint a = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((a != 0) ? (jint) m3gGetFog((M3GAppearance) a) : 0);
 }
@@ -2517,6 +2646,7 @@ Java_javax_microedition_m3g_Appearance_nGetFog()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetTexture()
 {
+    m3gCheckScreen("Appearance_nGetTexture");
     jint a = KNI_GetParameterAsInt(1);
     if (a == 0) {
         KNI_ReturnInt(0);
@@ -2528,6 +2658,7 @@ Java_javax_microedition_m3g_Appearance_nGetTexture()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetLayer()
 {
+    m3gCheckScreen("Appearance_nGetLayer");
     jint a = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((a != 0) ? m3gGetLayer((M3GAppearance) a) : 0);
 }
@@ -2537,6 +2668,7 @@ Java_javax_microedition_m3g_Appearance_nGetLayer()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Texture2D_nGetImage()
 {
+    m3gCheckScreen("Texture2D_nGetImage");
     jint t = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((t != 0) ? (jint) m3gGetTextureImage((M3GTexture) t) : 0);
 }
@@ -2546,6 +2678,7 @@ Java_javax_microedition_m3g_Texture2D_nGetImage()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Image2D_nGetWidth()
 {
+    m3gCheckScreen("Image2D_nGetWidth");
     jint img = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((img != 0) ? m3gGetWidth((M3GImage) img) : 0);
 }
@@ -2553,6 +2686,7 @@ Java_javax_microedition_m3g_Image2D_nGetWidth()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Image2D_nGetHeight()
 {
+    m3gCheckScreen("Image2D_nGetHeight");
     jint img = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((img != 0) ? m3gGetHeight((M3GImage) img) : 0);
 }
@@ -2560,6 +2694,7 @@ Java_javax_microedition_m3g_Image2D_nGetHeight()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Image2D_nGetFormat()
 {
+    m3gCheckScreen("Image2D_nGetFormat");
     jint img = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((img != 0) ? (jint) m3gGetFormat((M3GImage) img) : 0);
 }
@@ -2569,6 +2704,7 @@ Java_javax_microedition_m3g_Image2D_nGetFormat()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Material_nGetColor()
 {
+    m3gCheckScreen("Material_nGetColor");
     jint m = KNI_GetParameterAsInt(1);
     if (m == 0) {
         KNI_ReturnInt(0);
@@ -2582,6 +2718,7 @@ Java_javax_microedition_m3g_Material_nGetColor()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_VertexBuffer_nGetVertexCount()
 {
+    m3gCheckScreen("VertexBuffer_nGetVertexCount");
     jint vb = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((vb != 0) ? m3gGetVertexCount((M3GVertexBuffer) vb) : 0);
 }
@@ -2591,6 +2728,7 @@ Java_javax_microedition_m3g_VertexBuffer_nGetVertexCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_AnimationTrack_nGetSequence()
 {
+    m3gCheckScreen("AnimationTrack_nGetSequence");
     jint t = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((t != 0) ? (jint) m3gGetSequence((M3GAnimationTrack) t) : 0);
 }
@@ -2598,6 +2736,7 @@ Java_javax_microedition_m3g_AnimationTrack_nGetSequence()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_AnimationTrack_nGetTargetProperty()
 {
+    m3gCheckScreen("AnimationTrack_nGetTargetProperty");
     jint t = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((t != 0) ? m3gGetTargetProperty((M3GAnimationTrack) t) : 0);
 }
@@ -2605,6 +2744,7 @@ Java_javax_microedition_m3g_AnimationTrack_nGetTargetProperty()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_KeyframeSequence_nGetDuration()
 {
+    m3gCheckScreen("KeyframeSequence_nGetDuration");
     jint k = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((k != 0) ? m3gGetDuration((M3GKeyframeSequence) k) : 0);
 }
@@ -2612,6 +2752,7 @@ Java_javax_microedition_m3g_KeyframeSequence_nGetDuration()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_KeyframeSequence_nGetKeyframeCount()
 {
+    m3gCheckScreen("KeyframeSequence_nGetKeyframeCount");
     jint k = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((k != 0) ? m3gGetKeyframeCount((M3GKeyframeSequence) k) : 0);
 }
