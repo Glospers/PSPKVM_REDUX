@@ -42,6 +42,7 @@ public class Image2D extends Object3D {
         this.height = height;
         this.mutable = true;
         handle = nCreate(format, width, height, FLAG_DYNAMIC);
+        register();
     }
 
     public Image2D(int format, int width, int height, byte[] image) {
@@ -53,6 +54,7 @@ public class Image2D extends Object3D {
         this.width = width;
         this.height = height;
         handle = nCreate(format, width, height, FLAG_DYNAMIC);
+        register();
         if (handle != 0) {
             nSetImage(handle, image);
             nCommit(handle);
@@ -69,6 +71,7 @@ public class Image2D extends Object3D {
         this.width = width;
         this.height = height;
         handle = nCreate(format, width, height, FLAG_PALETTED);
+        register();
         if (handle != 0) {
             /* The engine counts palette entries, not bytes
              * (m3gcore/src/m3g_loader.c:2175). */
@@ -105,6 +108,7 @@ public class Image2D extends Object3D {
         img.getRGB(argb, 0, this.width, 0, 0, this.width, this.height);
 
         handle = nCreate(format, this.width, this.height, FLAG_DYNAMIC);
+        register();
         if (handle != 0) {
             nSetImage(handle, pack(argb, format));
             nCommit(handle);
@@ -163,9 +167,18 @@ public class Image2D extends Object3D {
         }
     }
 
-    public int getFormat()    { return format; }
-    public int getWidth()     { return width; }
-    public int getHeight()    { return height; }
+    public int getFormat() {
+        return (handle != 0) ? nGetFormat(handle) : format;
+    }
+
+    public int getWidth() {
+        return (handle != 0) ? nGetWidth(handle) : width;
+    }
+
+    public int getHeight() {
+        return (handle != 0) ? nGetHeight(handle) : height;
+    }
+
     public boolean isMutable() { return mutable; }
 
     public void set(int x, int y, int width, int height, byte[] image) {
@@ -193,4 +206,7 @@ public class Image2D extends Object3D {
                                             int width, int height,
                                             byte[] pixels);
     private static native void nCommit(int handle);
+    private static native int nGetWidth(int handle);
+    private static native int nGetHeight(int handle);
+    private static native int nGetFormat(int handle);
 }

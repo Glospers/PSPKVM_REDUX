@@ -19,6 +19,7 @@ public class Camera extends Node {
 
     public Camera() {
         handle = nCreate();
+        register();
     }
 
     public void setParallel(float fovy, float aspectRatio,

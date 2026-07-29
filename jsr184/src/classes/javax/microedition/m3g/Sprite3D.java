@@ -29,6 +29,7 @@ public class Sprite3D extends Node {
         this.cropHeight = image.getHeight();
         handle = nCreate(scaled ? 1 : 0, image.handle,
                          (appearance != null) ? appearance.handle : 0);
+        register();
     }
 
     public boolean isScaled() {

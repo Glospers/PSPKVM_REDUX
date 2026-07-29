@@ -22,6 +22,7 @@ public class Material extends Object3D {
 
     public Material() {
         handle = nCreate();
+        register();
     }
 
     public void setColor(int target, int ARGB) {
@@ -35,6 +36,9 @@ public class Material extends Object3D {
     }
 
     public int getColor(int target) {
+        if (handle != 0) {
+            return nGetColor(handle, target);
+        }
         switch (target) {
             case AMBIENT:  return ambientColor;
             case DIFFUSE:  return diffuseColor;
@@ -76,4 +80,5 @@ public class Material extends Object3D {
     private static native void nSetColor(int handle, int target, int ARGB);
     private static native void nSetShininess(int handle, float shininess);
     private static native void nSetVertexColorTracking(int handle, int enable);
+    private static native int nGetColor(int handle, int target);
 }

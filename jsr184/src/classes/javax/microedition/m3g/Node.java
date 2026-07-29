@@ -28,6 +28,9 @@ public abstract class Node extends Transformable {
     }
 
     public Node getParent() {
+        if (handle != 0) {
+            return (Node) Object3D.wrap(nGetParent(handle));
+        }
         return parent;
     }
 
@@ -121,4 +124,5 @@ public abstract class Node extends Transformable {
     private static native void nSetAlignment(int handle, int zRef, int zTarget,
                                              int yRef, int yTarget);
     private static native void nAlign(int handle, int reference);
+    private static native int nGetParent(int handle);
 }

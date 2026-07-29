@@ -33,6 +33,7 @@ public class MorphingMesh extends Mesh {
                          handles(targets),
                          handles(submeshes),
                          handles(getAppearances()));
+        register();
     }
 
     private void initTargets(VertexBuffer[] targets) {

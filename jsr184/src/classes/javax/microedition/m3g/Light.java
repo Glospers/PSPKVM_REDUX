@@ -24,6 +24,7 @@ public class Light extends Node {
 
     public Light() {
         handle = nCreate();
+        register();
     }
 
     public void setMode(int mode) {

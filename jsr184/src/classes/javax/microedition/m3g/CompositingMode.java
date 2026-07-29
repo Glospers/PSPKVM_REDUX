@@ -24,6 +24,7 @@ public class CompositingMode extends Object3D {
 
     public CompositingMode() {
         handle = nCreate();
+        register();
     }
 
     public void setBlending(int mode) {

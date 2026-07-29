@@ -38,6 +38,7 @@ public class Texture2D extends Transformable {
         }
         this.image = image;
         handle = nCreate(image.handle);
+        register();
     }
 
     public void setImage(Image2D image) {
@@ -51,6 +52,9 @@ public class Texture2D extends Transformable {
     }
 
     public Image2D getImage() {
+        if (handle != 0) {
+            return (Image2D) Object3D.wrap(nGetImage(handle));
+        }
         return image;
     }
 
@@ -107,4 +111,5 @@ public class Texture2D extends Transformable {
     private static native void nSetWrapping(int handle, int wrapS, int wrapT);
     private static native void nSetBlending(int handle, int func);
     private static native void nSetBlendColor(int handle, int RGB);
+    private static native int nGetImage(int handle);
 }

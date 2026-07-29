@@ -25,6 +25,7 @@ public class PolygonMode extends Object3D {
 
     public PolygonMode() {
         handle = nCreate();
+        register();
     }
 
     public void setCulling(int mode) {

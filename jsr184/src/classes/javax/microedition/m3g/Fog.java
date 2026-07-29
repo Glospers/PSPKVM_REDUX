@@ -18,6 +18,7 @@ public class Fog extends Object3D {
 
     public Fog() {
         handle = nCreate();
+        register();
     }
 
     public void setMode(int mode) {

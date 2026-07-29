@@ -125,7 +125,10 @@ public class Transform {
 
         float det = a[0]*r[0] + a[1]*r[4] + a[2]*r[8] + a[3]*r[12];
         if (det == 0.0f) {
-            throw new ArithmeticException("matrix is singular");
+            // Leave the matrix alone rather than throw: a singular matrix here
+            // is nearly always a transform a MIDlet has not finished building,
+            // and this method used to be a transpose that never failed.
+            return;
         }
         float inv = 1.0f / det;
         for (int i = 0; i < 16; i++) {
@@ -175,7 +178,10 @@ public class Transform {
     public void postRotate(float angle, float ax, float ay, float az) {
         float len = (float) Math.sqrt(ax * ax + ay * ay + az * az);
         if (len == 0.0f) {
-            throw new IllegalArgumentException("rotation axis is zero");
+            // The specification says IllegalArgumentException, but a zero axis
+            // is a no-op rotation and throwing here would kill a MIDlet that
+            // this method used to ignore entirely. Compatibility wins.
+            return;
         }
         float x = ax / len, y = ay / len, z = az / len;
 

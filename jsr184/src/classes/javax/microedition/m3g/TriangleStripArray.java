@@ -32,6 +32,7 @@ public class TriangleStripArray extends IndexBuffer {
             indices[i] = firstIndex + i;
         }
         handle = nCreateImplicit(firstIndex, stripLengths);
+        register();
     }
 
     public TriangleStripArray(int[] indices, int[] stripLengths) {
@@ -51,6 +52,7 @@ public class TriangleStripArray extends IndexBuffer {
         this.indices = new int[total];
         System.arraycopy(indices, 0, this.indices, 0, total);
         handle = nCreateExplicit(this.indices, stripLengths);
+        register();
     }
 
     /*

@@ -41,7 +41,9 @@ public class KeyframeSequence extends Object3D {
     }
 
     public int getComponentCount()   { return numComponents; }
-    public int getKeyframeCount()    { return numKeyframes; }
+    public int getKeyframeCount() {
+        return (handle != 0) ? nGetKeyframeCount(handle) : numKeyframes;
+    }
     public int getInterpolationType() { return interpolation; }
 
     public void setKeyframe(int index, int time, float[] value) {
@@ -81,7 +83,7 @@ public class KeyframeSequence extends Object3D {
     }
 
     public int getDuration() {
-        return duration;
+        return (handle != 0) ? nGetDuration(handle) : duration;
     }
 
     public void setRepeatMode(int mode) {
@@ -94,4 +96,9 @@ public class KeyframeSequence extends Object3D {
     public int getRepeatMode() {
         return repeatMode;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nGetDuration(int handle);
+    private static native int nGetKeyframeCount(int handle);
 }

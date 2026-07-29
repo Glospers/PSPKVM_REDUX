@@ -32,6 +32,7 @@ public class VertexArray extends Object3D {
             shortValues = new short[numVertices * numComponents];
         }
         handle = nCreate(numVertices, numComponents, componentSize);
+        register();
     }
 
     public int getVertexCount()   { return numVertices; }

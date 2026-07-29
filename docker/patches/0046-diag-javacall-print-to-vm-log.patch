@@ -1,0 +1,39 @@
+diff --git a/javacall/implementation/psp_mips/common/logging.c b/javacall/implementation/psp_mips/common/logging.c
+index 12f3b21..af1dce9 100644
+--- a/javacall/implementation/psp_mips/common/logging.c
++++ b/javacall/implementation/psp_mips/common/logging.c
+@@ -45,7 +45,34 @@ static int log_channel_file = 0;
+  *
+  * @param s a NULL terminated character buffer to be printed
+ */
++/* Diagnostic: mirror the interesting part of what the VM and MIDP
++ * print into ms0:/pspkvm_vm.log.
++ *
++ * javacall_print reaches no sink of its own -- every output channel
++ * below defaults to off -- so an uncaught MIDlet exception and the
++ * stack trace CLDC prints with it are invisible on this platform.
++ *
++ * It is filtered because javacall_diag_log opens, appends and closes
++ * per call: mirroring everything makes the memory stick the
++ * bottleneck and the runtime crawls (MIDP prints a line per resource
++ * stream). Only failure reports are worth that cost.
++ *
++ * Declared here because its definition is further down this file.
++ */
++void javacall_diag_log(const char *s);
++
++static int javacall_diag_interesting(const char *s) {
++    return (strstr(s, "xception") != NULL
++         || strstr(s, "rror")    != NULL
++         || strstr(s, "java.")   != NULL
++         || strstr(s, "at ")     != NULL
++         || strstr(s, "ready to go") != NULL);
++}
++
+ void javacall_print(const char *s) {
++    if (javacall_diag_interesting(s)) {
++        javacall_diag_log(s);
++    }
+     
+     if (log_channel_consle) pspDebugScreenPrintf(s);
+     if (log_channel_startup) pspkvm_screen_log(s);

@@ -118,6 +118,15 @@ Java_javax_microedition_m3g_Loader_nLoadData()
     jint length = KNI_GetParameterAsInt(3);
     jint result;
 
+    /* Entry marker. m3gReportArena below only runs once the parse is over, so
+     * without this a load that never returns is indistinguishable from a load
+     * that was never started. */
+    if (javacall_diag_log != 0) {
+        char begin[64];
+        sprintf(begin, "M3G: load begin %d\n", (int) length);
+        javacall_diag_log(begin);
+    }
+
     m3gDiscardPendingResult();
 
     KNI_StartHandles(1);

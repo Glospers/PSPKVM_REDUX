@@ -17,6 +17,7 @@ public class Appearance extends Object3D {
 
     public Appearance() {
         handle = nCreate();
+        register();
     }
 
     public void setLayer(int layer) {
@@ -42,6 +43,9 @@ public class Appearance extends Object3D {
     }
 
     public CompositingMode getCompositingMode() {
+        if (handle != 0) {
+            return (CompositingMode) Object3D.wrap(nGetCompositingMode(handle));
+        }
         return compositingMode;
     }
 
@@ -53,6 +57,9 @@ public class Appearance extends Object3D {
     }
 
     public Fog getFog() {
+        if (handle != 0) {
+            return (Fog) Object3D.wrap(nGetFog(handle));
+        }
         return fog;
     }
 
@@ -65,6 +72,9 @@ public class Appearance extends Object3D {
     }
 
     public PolygonMode getPolygonMode() {
+        if (handle != 0) {
+            return (PolygonMode) Object3D.wrap(nGetPolygonMode(handle));
+        }
         return polygonMode;
     }
 
@@ -76,6 +86,9 @@ public class Appearance extends Object3D {
     }
 
     public Material getMaterial() {
+        if (handle != 0) {
+            return (Material) Object3D.wrap(nGetMaterial(handle));
+        }
         return material;
     }
 
@@ -93,6 +106,9 @@ public class Appearance extends Object3D {
         if (index < 0 || index >= textures.length) {
             throw new IndexOutOfBoundsException();
         }
+        if (handle != 0) {
+            return (Texture2D) Object3D.wrap(nGetTexture(handle, index));
+        }
         return textures[index];
     }
 
@@ -105,4 +121,10 @@ public class Appearance extends Object3D {
     private static native void nSetCompositingMode(int handle, int mode);
     private static native void nSetFog(int handle, int fog);
     private static native void nSetTexture(int handle, int unit, int texture);
+    private static native int nGetMaterial(int handle);
+    private static native int nGetPolygonMode(int handle);
+    private static native int nGetCompositingMode(int handle);
+    private static native int nGetFog(int handle);
+    private static native int nGetTexture(int handle, int unit);
+    private static native int nGetLayer(int handle);
 }

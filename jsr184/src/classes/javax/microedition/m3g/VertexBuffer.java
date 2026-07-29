@@ -19,9 +19,13 @@ public class VertexBuffer extends Object3D {
             texScaleBias[i][0] = 1.0f;
         }
         handle = nCreate();
+        register();
     }
 
     public int getVertexCount() {
+        if (handle != 0) {
+            return nGetVertexCount(handle);
+        }
         return (positions != null) ? positions.getVertexCount() : 0;
     }
 
@@ -118,4 +122,5 @@ public class VertexBuffer extends Object3D {
     private static native void nSetTexCoords(int handle, int unit, int array,
                                              float scale, float[] bias);
     private static native void nSetDefaultColor(int handle, int ARGB);
+    private static native int nGetVertexCount(int handle);
 }

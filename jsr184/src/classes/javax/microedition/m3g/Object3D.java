@@ -63,11 +63,51 @@ public abstract class Object3D {
      */
     int handle;
 
-    private int userID;
     private Object userObject;
-    private java.util.Vector animationTracks = new java.util.Vector();
+
+    /**
+     * Every wrapper that currently stands for an engine object, keyed by its
+     * handle.
+     *
+     * The scene-graph accessors hand back raw handles, and the same handle has
+     * to keep producing the same Java object or identity breaks: a MIDlet that
+     * writes <code>group.removeChild(group.getChild(0))</code>, or compares a
+     * node it kept against one it just read back, depends on it. This table is
+     * what makes that hold.
+     *
+     * Nothing is ever removed. CLDC has no finalization, so there is no moment
+     * at which a wrapper is known to be dead, and the engine objects leak
+     * already; this adds a reference per object to a leak that is accepted for
+     * now.
+     */
+    private static java.util.Hashtable wrappers = new java.util.Hashtable();
 
     Object3D() {
+    }
+
+    /**
+     * The wrapper for an engine object, made if it does not exist yet.
+     *
+     * @return null for a zero handle, or if the handle names a class that
+     *         cannot be wrapped
+     */
+    static Object3D wrap(int handle) {
+        if (handle == 0) {
+            return null;
+        }
+        Integer key = new Integer(handle);
+        Object existing = wrappers.get(key);
+        if (existing != null) {
+            return (Object3D) existing;
+        }
+        return createWrapper(nClassID(handle), handle);
+    }
+
+    /** Records this instance as the wrapper for its handle. */
+    void register() {
+        if (handle != 0) {
+            wrappers.put(new Integer(handle), this);
+        }
     }
 
     /**
@@ -129,9 +169,17 @@ public abstract class Object3D {
      */
     void adopt(int engineHandle) {
         if (handle != 0 && handle != engineHandle) {
+            /*
+             * Forget the throwaway before destroying it. Handles are engine
+             * addresses and the arena reuses them, so an entry left behind for
+             * a freed object would eventually be handed back by wrap() for a
+             * completely unrelated one.
+             */
+            wrappers.remove(new Integer(handle));
             nDeleteRef(handle);
         }
         handle = engineHandle;
+        register();
     }
 
     /**
@@ -154,17 +202,26 @@ public abstract class Object3D {
         return result;
     }
 
+    /**
+     * A deep copy, made by the engine.
+     *
+     * m3gDuplicate copies the whole subtree the specification asks for, which
+     * a Java-side copy could not do -- the children of a loaded Group exist
+     * only inside the engine.
+     */
     public final Object3D duplicate() {
-        return duplicateImpl();
-    }
-
-    /** Overridden by subclasses that carry state worth copying. */
-    Object3D duplicateImpl() {
-        return this;
+        if (handle == 0) {
+            return this;
+        }
+        Object3D copy = wrap(nDuplicate(handle));
+        return (copy != null) ? copy : this;
     }
 
     public Object3D find(int userID) {
-        return (this.userID == userID) ? this : null;
+        if (handle != 0) {
+            return wrap(nFind(handle, userID));
+        }
+        return null;
     }
 
     public int getReferences(Object3D[] references) {
@@ -172,11 +229,10 @@ public abstract class Object3D {
     }
 
     public int getUserID() {
-        return userID;
+        return (handle != 0) ? nGetUserID(handle) : 0;
     }
 
     public void setUserID(int userID) {
-        this.userID = userID;
         if (handle != 0) {
             nSetUserID(handle, userID);
         }
@@ -194,23 +250,30 @@ public abstract class Object3D {
         if (animationTrack == null) {
             throw new NullPointerException();
         }
-        animationTracks.addElement(animationTrack);
+        if (handle != 0 && animationTrack.handle != 0) {
+            nAddAnimationTrack(handle, animationTrack.handle);
+        }
     }
 
     public AnimationTrack getAnimationTrack(int index) {
-        return (AnimationTrack) animationTracks.elementAt(index);
+        if (handle == 0) {
+            throw new IndexOutOfBoundsException();
+        }
+        return (AnimationTrack) wrap(nGetAnimationTrack(handle, index));
     }
 
     public int getAnimationTrackCount() {
-        return animationTracks.size();
+        return (handle != 0) ? nGetAnimationTrackCount(handle) : 0;
     }
 
     public void removeAnimationTrack(AnimationTrack animationTrack) {
-        animationTracks.removeElement(animationTrack);
+        if (animationTrack != null && handle != 0 && animationTrack.handle != 0) {
+            nRemoveAnimationTrack(handle, animationTrack.handle);
+        }
     }
 
     public int animate(int time) {
-        return 0;
+        return (handle != 0) ? nAnimate(handle, time) : 0;
     }
 
     /*
@@ -222,4 +285,16 @@ public abstract class Object3D {
     private static native void nDeleteRef(int handle);
 
     private static native void nSetUserID(int handle, int userID);
+    private static native int nGetUserID(int handle);
+
+    /** The m3gcore class id, i.e. which Java class a handle belongs in. */
+    private static native int nClassID(int handle);
+
+    private static native int nAnimate(int handle, int time);
+    private static native int nDuplicate(int handle);
+    private static native int nFind(int handle, int userID);
+    private static native int nGetAnimationTrackCount(int handle);
+    private static native int nGetAnimationTrack(int handle, int index);
+    private static native void nAddAnimationTrack(int handle, int track);
+    private static native void nRemoveAnimationTrack(int handle, int track);
 }

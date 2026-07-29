@@ -15,6 +15,7 @@ public class World extends Group {
         /* Not a Group in the engine -- see Group(boolean). */
         super(false);
         handle = nCreate();
+        register();
     }
 
     public void setActiveCamera(Camera camera) {
@@ -28,6 +29,9 @@ public class World extends Group {
     }
 
     public Camera getActiveCamera() {
+        if (handle != 0) {
+            return (Camera) Object3D.wrap(nGetActiveCamera(handle));
+        }
         return activeCamera;
     }
 
@@ -40,6 +44,9 @@ public class World extends Group {
     }
 
     public Background getBackground() {
+        if (handle != 0) {
+            return (Background) Object3D.wrap(nGetBackground(handle));
+        }
         return background;
     }
 
@@ -48,4 +55,6 @@ public class World extends Group {
     private static native int nCreate();
     private static native void nSetActiveCamera(int world, int camera);
     private static native void nSetBackground(int world, int background);
+    private static native int nGetActiveCamera(int world);
+    private static native int nGetBackground(int world);
 }

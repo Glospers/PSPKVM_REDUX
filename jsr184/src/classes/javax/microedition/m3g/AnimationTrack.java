@@ -51,6 +51,9 @@ public class AnimationTrack extends Object3D {
     }
 
     public KeyframeSequence getKeyframeSequence() {
+        if (handle != 0) {
+            return (KeyframeSequence) Object3D.wrap(nGetSequence(handle));
+        }
         return sequence;
     }
 
@@ -63,6 +66,14 @@ public class AnimationTrack extends Object3D {
     }
 
     public int getTargetProperty() {
+        if (handle != 0) {
+            return nGetTargetProperty(handle);
+        }
         return property;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nGetSequence(int handle);
+    private static native int nGetTargetProperty(int handle);
 }

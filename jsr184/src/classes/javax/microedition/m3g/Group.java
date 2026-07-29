@@ -12,6 +12,7 @@ public class Group extends Node {
 
     public Group() {
         handle = nCreate();
+        register();
     }
 
     /**
@@ -23,6 +24,7 @@ public class Group extends Node {
     Group(boolean createEngineObject) {
         if (createEngineObject) {
             handle = nCreate();
+            register();
         }
     }
 
@@ -52,12 +54,24 @@ public class Group extends Node {
         }
     }
 
+    /*
+     * Read through to the engine rather than from the Vector above: the
+     * children of a Group that came out of Loader exist only inside m3gcore,
+     * and walking a loaded scene is the normal way a MIDlet uses one.
+     */
+
     public int getChildCount() {
-        return children.size();
+        return (handle != 0) ? nGetChildCount(handle) : children.size();
     }
 
     public Node getChild(int index) {
-        return (Node) children.elementAt(index);
+        if (handle == 0) {
+            return (Node) children.elementAt(index);
+        }
+        if (index < 0 || index >= nGetChildCount(handle)) {
+            throw new IndexOutOfBoundsException();
+        }
+        return (Node) Object3D.wrap(nGetChild(handle, index));
     }
 
     public boolean pick(int scope, float x, float y, Camera camera,
@@ -89,4 +103,6 @@ public class Group extends Node {
     private static native int nCreate();
     private static native void nAddChild(int group, int child);
     private static native void nRemoveChild(int group, int child);
+    private static native int nGetChildCount(int group);
+    private static native int nGetChild(int group, int index);
 }

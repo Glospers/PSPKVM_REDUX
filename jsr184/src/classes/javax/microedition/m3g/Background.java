@@ -24,6 +24,7 @@ public class Background extends Object3D {
 
     public Background() {
         handle = nCreate();
+        register();
     }
 
     public void setColor(int ARGB) {

@@ -58,6 +58,7 @@ public class Mesh extends Node {
             handle = nCreate(vertices.handle,
                              handles(submeshes),
                              handles(this.appearances));
+            register();
         }
     }
 
@@ -66,15 +67,32 @@ public class Mesh extends Node {
         return appearances;
     }
 
+    /*
+     * As in Group: a Mesh that came out of Loader has no Java-side geometry,
+     * so these read through to the engine whenever there is one to read.
+     */
+
     public VertexBuffer getVertexBuffer() {
+        if (handle != 0) {
+            return (VertexBuffer) Object3D.wrap(nGetVertexBuffer(handle));
+        }
         return vertexBuffer;
     }
 
     public int getSubmeshCount() {
+        if (handle != 0) {
+            return nGetSubmeshCount(handle);
+        }
         return (submeshes != null) ? submeshes.length : 0;
     }
 
     public IndexBuffer getIndexBuffer(int index) {
+        if (handle != 0) {
+            if (index < 0 || index >= nGetSubmeshCount(handle)) {
+                throw new IndexOutOfBoundsException();
+            }
+            return (IndexBuffer) Object3D.wrap(nGetIndexBuffer(handle, index));
+        }
         return submeshes[index];
     }
 
@@ -87,6 +105,12 @@ public class Mesh extends Node {
     }
 
     public Appearance getAppearance(int index) {
+        if (handle != 0) {
+            if (index < 0 || index >= nGetSubmeshCount(handle)) {
+                throw new IndexOutOfBoundsException();
+            }
+            return (Appearance) Object3D.wrap(nGetAppearance(handle, index));
+        }
         return appearances[index];
     }
 
@@ -96,4 +120,8 @@ public class Mesh extends Node {
                                       int[] appearances);
     private static native void nSetAppearance(int handle, int index,
                                               int appearance);
+    private static native int nGetSubmeshCount(int handle);
+    private static native int nGetVertexBuffer(int handle);
+    private static native int nGetIndexBuffer(int handle, int index);
+    private static native int nGetAppearance(int handle, int index);
 }

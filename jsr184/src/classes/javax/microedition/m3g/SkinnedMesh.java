@@ -34,6 +34,7 @@ public class SkinnedMesh extends Mesh {
                          handles(submeshes),
                          handles(getAppearances()),
                          skeleton.handle);
+        register();
     }
 
     private void initSkeleton(Group skeleton) {
