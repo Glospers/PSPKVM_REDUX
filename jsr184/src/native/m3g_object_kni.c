@@ -130,6 +130,49 @@ static int s_failuresLeft = M3G_FAILURE_REPORTS;
 /*! \brief One arena-corruption report per run; the first is the informative one. */
 static int s_arenaFaultReported;
 
+/*----------------------------------------------------------------------
+ * Screen-globals watchdog
+ *
+ * PSPKVM keeps the display size in two adjacent file-static ints in
+ * javacall/implementation/psp_mips/midp/lcd.c, and they have been observed to
+ * become zero part-way through a run -- which traps the next repaint, because
+ * the flush divides by them.  The only function that assigns them now refuses
+ * a non-positive size and says so, and it never fired: so something is writing
+ * over them, and the write is a long way from where it is noticed.
+ *
+ * Narrowing that by bisecting builds would take many runs.  Instead every
+ * place in this file that hands the engine a raw pointer into the Java heap --
+ * which is the whole population of suspects -- checks the two values
+ * afterwards and reports the FIRST operation that leaves them zero.  Reading
+ * two ints costs nothing next to the engine call that precedes it, and one
+ * line names the culprit outright.
+ *
+ * Declared here rather than through <javacall_lcd.h> for the reason given at
+ * the top of m3g_graphics3d_kni.c: that header is not on MIDP's native include
+ * path.
+ *--------------------------------------------------------------------*/
+
+extern int javacall_lcd_get_screen_width(void);
+extern int javacall_lcd_get_screen_height(void);
+
+static int s_screenDead;
+
+static void m3gCheckScreen(const char *what)
+{
+    char line[96];
+
+    if (s_screenDead || javacall_diag_log == 0) {
+        return;
+    }
+    if (javacall_lcd_get_screen_width() > 0
+        && javacall_lcd_get_screen_height() > 0) {
+        return;
+    }
+    s_screenDead = 1;
+    sprintf(line, "M3G: SCREEN ZEROED after %s\n", what);
+    javacall_diag_log(line);
+}
+
 static void m3gReportFailure(const char *what)
 {
     M3GPspArenaStats st;
@@ -226,6 +269,7 @@ static jint m3gOwn(const char *what, void *object)
         }
     }
     m3gTrace("made", what, (jint) object);
+    m3gCheckScreen(what);
     return (jint) object;
 }
 
@@ -421,6 +465,7 @@ Java_javax_microedition_m3g_Object3D_nDuplicate()
     }
 
     result = m3gOwn("duplicate", m3gDuplicate((M3GObject) handle, pairs));
+    m3gCheckScreen("Object3D.duplicate");
     m3gPspArenaFree(pairs);
 
     KNI_ReturnInt(result);
@@ -1768,6 +1813,7 @@ Java_javax_microedition_m3g_Image2D_nSetImage()
                            m3gGetHeight((M3GImage) handle),
                            KNI_GetArrayLength(pixels),
                            src);
+            m3gCheckScreen("Image2D.setImage");
         }
     }
     KNI_EndHandles();
@@ -1793,6 +1839,7 @@ Java_javax_microedition_m3g_Image2D_nSetPalette()
         const void *src = SNI_GetRawArrayPointer(palette);
         if (src != NULL) {
             m3gSetImagePalette((M3GImage) handle, length, src);
+            m3gCheckScreen("Image2D.setPalette");
         }
     }
     KNI_EndHandles();
@@ -1826,6 +1873,7 @@ Java_javax_microedition_m3g_Image2D_nSetSubImage()
         if (src != NULL) {
             m3gSetSubImage((M3GImage) handle, x, y, width, height,
                            KNI_GetArrayLength(pixels), src);
+            m3gCheckScreen("Image2D.setSubImage");
         }
     }
     KNI_EndHandles();
@@ -1894,6 +1942,7 @@ Java_javax_microedition_m3g_VertexArray_nSetByte()
                                       first, (M3Gsizei) count,
                                       (M3Gsizei) KNI_GetArrayLength(values),
                                       M3G_BYTE, src);
+            m3gCheckScreen("VertexArray.setByte");
         }
     }
     KNI_EndHandles();
@@ -1923,6 +1972,7 @@ Java_javax_microedition_m3g_VertexArray_nSetShort()
                                       first, (M3Gsizei) count,
                                       (M3Gsizei) KNI_GetArrayLength(values),
                                       M3G_SHORT, src);
+            m3gCheckScreen("VertexArray.setShort");
         }
     }
     KNI_EndHandles();
@@ -1969,6 +2019,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetPositions()
         }
         m3gSetVertexArray((M3GVertexBuffer) handle,
                           (M3GVertexArray) array, scale, b, n);
+        m3gCheckScreen("VertexBuffer.setPositions");
     }
     KNI_EndHandles();
 
@@ -2029,6 +2080,7 @@ Java_javax_microedition_m3g_VertexBuffer_nSetTexCoords()
         }
         m3gSetTexCoordArray((M3GVertexBuffer) handle, unit,
                             (M3GVertexArray) array, scale, b, n);
+        m3gCheckScreen("VertexBuffer.setTexCoords");
     }
     KNI_EndHandles();
 
@@ -2282,6 +2334,7 @@ Java_javax_microedition_m3g_MorphingMesh_nSetWeights()
         if (w != NULL) {
             m3gSetWeights((M3GMorphingMesh) handle, w,
                           (M3Gint) KNI_GetArrayLength(weights));
+            m3gCheckScreen("MorphingMesh.setWeights");
         }
     }
     KNI_EndHandles();

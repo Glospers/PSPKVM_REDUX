@@ -1,8 +1,8 @@
 diff --git a/javacall/implementation/psp_mips/midp/lcd.c b/javacall/implementation/psp_mips/midp/lcd.c
-index 5647744..7e4910d 100644
+index 5647744..ad11972 100644
 --- a/javacall/implementation/psp_mips/midp/lcd.c
 +++ b/javacall/implementation/psp_mips/midp/lcd.c
-@@ -44,6 +44,12 @@ extern const unsigned short DukeTango[];
+@@ -44,6 +44,21 @@ extern const unsigned short DukeTango[];
  
  static unsigned short* vram = (unsigned short*) (0x40000000 | 0x04000000);
  
@@ -12,10 +12,19 @@ index 5647744..7e4910d 100644
 + */
 +extern void javacall_diag_log(const char *s) __attribute__((weak));
 +
++/*
++ * The last size the setter was legitimately given, so that the clamp in the
++ * flush can restore something correct rather than something merely non-zero.
++ * A 240x320 device forced to 480x272 would letterbox to garbage, which looks
++ * enough like a freeze to waste a debugging round.
++ */
++static int last_good_w = 480;
++static int last_good_h = 272;
++
  static int vscr_w = 480;
  static int vscr_h = 272;
  
-@@ -351,6 +357,28 @@ static javacall_result javacall_lcd_flush_partial_internal(javacall_pixel* scbuf
+@@ -351,6 +366,28 @@ static javacall_result javacall_lcd_flush_partial_internal(javacall_pixel* scbuf
      		int scr_y = 0;
      		int scr_w = vscr_w;
      		int scr_h = vscr_h;
@@ -38,13 +47,13 @@ index 5647744..7e4910d 100644
 +    					scr_w, scr_h);
 +    				javacall_diag_log(line);
 +    			}
-+    			scr_w = 480;
-+    			scr_h = 272;
++    			scr_w = last_good_w;
++    			scr_h = last_good_h;
 +    		}
      		if (javacall_devemu_get_rotation(javacall_devemu_get_current_device()) == 90) {
      			/*
      			CopyImageCW90(screen.image, screen.width,
-@@ -457,6 +485,25 @@ int javacall_lcd_get_screen_height() {
+@@ -457,6 +494,27 @@ int javacall_lcd_get_screen_height() {
  }
  
  void javacall_set_new_screen_size(int w, int h) {
@@ -67,6 +76,8 @@ index 5647744..7e4910d 100644
 +    if (w <= 0 || h <= 0) {
 +        return;
 +    }
++    last_good_w = w;
++    last_good_h = h;
      if (w == vscr_w && h == vscr_h) {
          return;
      }
