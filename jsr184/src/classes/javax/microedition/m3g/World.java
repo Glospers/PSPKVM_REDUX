@@ -14,6 +14,10 @@ public class World extends Group {
     public World() {
         /* Not a Group in the engine -- see Group(boolean). */
         super(false);
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -48,6 +52,16 @@ public class World extends Group {
             return (Background) Object3D.wrap(nGetBackground(handle));
         }
         return background;
+    }
+
+    void applyDeferred() {
+        super.applyDeferred();
+        if (activeCamera != null && activeCamera.handle != 0) {
+            nSetActiveCamera(handle, activeCamera.handle);
+        }
+        if (background != null && background.handle != 0) {
+            nSetBackground(handle, background.handle);
+        }
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

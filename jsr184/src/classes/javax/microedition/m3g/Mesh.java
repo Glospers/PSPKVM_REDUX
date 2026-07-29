@@ -55,12 +55,20 @@ public class Mesh extends Node {
             ? appearances : new Appearance[submeshes.length];
 
         if (createEngineObject) {
-            handle = nCreate(vertices.handle,
-                             handles(submeshes),
-                             handles(this.appearances));
-            register();
+            construct();
         }
     }
+
+    void createDeferred() {
+        handle = nCreate(vertexBuffer.handle,
+                         handles(submeshes),
+                         handles(appearances));
+        register();
+    }
+
+    /** The constructor arguments, for the subclasses that rebuild themselves. */
+    VertexBuffer rawVertexBuffer() { return vertexBuffer; }
+    IndexBuffer[] rawSubmeshes()   { return submeshes; }
 
     /** The appearance array as normalised by the constructor above. */
     Appearance[] getAppearances() {
@@ -112,6 +120,16 @@ public class Mesh extends Node {
             return (Appearance) Object3D.wrap(nGetAppearance(handle, index));
         }
         return appearances[index];
+    }
+
+    /** Re-pushes appearances, which may have been set after construction. */
+    void applyDeferred() {
+        super.applyDeferred();
+        for (int i = 0; i < appearances.length; i++) {
+            if (appearances[i] != null && appearances[i].handle != 0) {
+                nSetAppearance(handle, i, appearances[i].handle);
+            }
+        }
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

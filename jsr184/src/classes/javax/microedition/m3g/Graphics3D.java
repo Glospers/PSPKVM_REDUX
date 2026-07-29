@@ -92,6 +92,11 @@ public final class Graphics3D {
         int size = nBind(hints, depthBuffer ? 1 : 0);
         if (size > 0) {
             nativeBound = true;
+            // Binding is one of the two things that brings the renderer up, so
+            // anything the MIDlet built before now has an engine object waiting
+            // to be made. Do it before the camera and lights are pushed, since
+            // those are exactly the objects in question.
+            Object3D.flushDeferred();
             viewportWidth  = size >>> 16;
             viewportHeight = size & 0xFFFF;
             nSetViewport(0, 0, viewportWidth, viewportHeight);

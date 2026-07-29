@@ -37,8 +37,20 @@ public class Texture2D extends Transformable {
             throw new NullPointerException();
         }
         this.image = image;
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate(image.handle);
         register();
+    }
+
+    void applyDeferred() {
+        super.applyDeferred();
+        nSetFiltering(handle, levelFilter, imageFilter);
+        nSetWrapping(handle, wrappingS, wrappingT);
+        nSetBlending(handle, blending);
+        nSetBlendColor(handle, blendColor);
     }
 
     public void setImage(Image2D image) {

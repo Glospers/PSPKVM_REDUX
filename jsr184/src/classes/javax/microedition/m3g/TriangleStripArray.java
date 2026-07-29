@@ -8,6 +8,12 @@ package javax.microedition.m3g;
 
 public class TriangleStripArray extends IndexBuffer {
 
+    /* The constructor arguments, kept so that a strip built before the
+     * renderer existed can be rebuilt once it does. */
+    private int[] stripLengths;
+    private int firstIndex;
+    private boolean implicit;
+
     /** Wrapper for an object that already exists in the engine; see
      *  Object3D.createWrapper. */
     TriangleStripArray() {
@@ -31,8 +37,13 @@ public class TriangleStripArray extends IndexBuffer {
         for (int i = 0; i < total; i++) {
             indices[i] = firstIndex + i;
         }
-        handle = nCreateImplicit(firstIndex, stripLengths);
-        register();
+        /* Kept so the buffer can be rebuilt if the renderer was not up yet;
+         * the engine wants the strip lengths, which the flattened index array
+         * above cannot be taken back apart into. */
+        this.stripLengths = stripLengths;
+        this.firstIndex = firstIndex;
+        this.implicit = true;
+        construct();
     }
 
     public TriangleStripArray(int[] indices, int[] stripLengths) {
@@ -51,7 +62,13 @@ public class TriangleStripArray extends IndexBuffer {
         }
         this.indices = new int[total];
         System.arraycopy(indices, 0, this.indices, 0, total);
-        handle = nCreateExplicit(this.indices, stripLengths);
+        this.stripLengths = stripLengths;
+        construct();
+    }
+
+    void createDeferred() {
+        handle = implicit ? nCreateImplicit(firstIndex, stripLengths)
+                          : nCreateExplicit(indices, stripLengths);
         register();
     }
 

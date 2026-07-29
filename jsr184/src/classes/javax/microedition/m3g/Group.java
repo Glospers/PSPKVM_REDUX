@@ -11,8 +11,7 @@ public class Group extends Node {
     private java.util.Vector children = new java.util.Vector();
 
     public Group() {
-        handle = nCreate();
-        register();
+        construct();
     }
 
     /**
@@ -23,9 +22,13 @@ public class Group extends Node {
      */
     Group(boolean createEngineObject) {
         if (createEngineObject) {
-            handle = nCreate();
-            register();
+            construct();
         }
+    }
+
+    void createDeferred() {
+        handle = nCreate();
+        register();
     }
 
     public void addChild(Node child) {
@@ -96,6 +99,23 @@ public class Group extends Node {
             }
         }
         return null;
+    }
+
+    /**
+     * Re-links the children.
+     *
+     * This runs in the second pass precisely because a child may have been
+     * constructed after its parent, and so was still handle-less when this
+     * Group was built.
+     */
+    void applyDeferred() {
+        super.applyDeferred();
+        for (int i = 0; i < children.size(); i++) {
+            Node child = (Node) children.elementAt(i);
+            if (child.handle != 0) {
+                nAddChild(handle, child.handle);
+            }
+        }
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

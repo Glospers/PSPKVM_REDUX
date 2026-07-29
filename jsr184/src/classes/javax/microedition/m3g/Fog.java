@@ -17,6 +17,10 @@ public class Fog extends Object3D {
     private float near, far = 1.0f;
 
     public Fog() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -70,6 +74,13 @@ public class Fog extends Object3D {
 
     public float getNearDistance() { return near; }
     public float getFarDistance()  { return far; }
+
+    void applyDeferred() {
+        nSetMode(handle, mode);
+        nSetColor(handle, color);
+        nSetDensity(handle, density);
+        nSetLinear(handle, near, far);
+    }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 

@@ -18,6 +18,10 @@ public class Camera extends Node {
     private Transform projection = new Transform();
 
     public Camera() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -75,6 +79,17 @@ public class Camera extends Node {
             params[3] = far;
         }
         return projectionType;
+    }
+
+    void applyDeferred() {
+        super.applyDeferred();
+        if (projectionType == PERSPECTIVE) {
+            nSetPerspective(handle, fovy, aspectRatio, near, far);
+        } else if (projectionType == PARALLEL) {
+            nSetParallel(handle, fovy, aspectRatio, near, far);
+        } else {
+            nSetGeneric(handle, projection.rows());
+        }
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

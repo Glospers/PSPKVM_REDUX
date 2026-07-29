@@ -114,6 +114,14 @@ public abstract class Node extends Transformable {
         return true;
     }
 
+    void applyDeferred() {
+        super.applyDeferred();
+        nEnable(handle, ENABLE_RENDERING, renderingEnabled ? 1 : 0);
+        nEnable(handle, ENABLE_PICKING, pickingEnabled ? 1 : 0);
+        nSetAlphaFactor(handle, alphaFactor);
+        nSetScope(handle, scope);
+    }
+
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 
     private static native void nSetAlphaFactor(int handle, float alphaFactor);

@@ -23,6 +23,10 @@ public class Light extends Node {
     private float quadraticAttenuation = 0.0f;
 
     public Light() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -97,6 +101,17 @@ public class Light extends Node {
     public float getConstantAttenuation()  { return constantAttenuation; }
     public float getLinearAttenuation()    { return linearAttenuation; }
     public float getQuadraticAttenuation() { return quadraticAttenuation; }
+
+    void applyDeferred() {
+        super.applyDeferred();
+        nSetMode(handle, mode);
+        nSetColor(handle, color);
+        nSetIntensity(handle, intensity);
+        nSetSpotAngle(handle, spotAngle);
+        nSetSpotExponent(handle, spotExponent);
+        nSetAttenuation(handle, constantAttenuation, linearAttenuation,
+                        quadraticAttenuation);
+    }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 

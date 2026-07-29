@@ -27,9 +27,18 @@ public class Sprite3D extends Node {
         this.appearance = appearance;
         this.cropWidth = image.getWidth();
         this.cropHeight = image.getHeight();
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate(scaled ? 1 : 0, image.handle,
                          (appearance != null) ? appearance.handle : 0);
         register();
+    }
+
+    void applyDeferred() {
+        super.applyDeferred();
+        nSetCrop(handle, cropX, cropY, cropWidth, cropHeight);
     }
 
     public boolean isScaled() {

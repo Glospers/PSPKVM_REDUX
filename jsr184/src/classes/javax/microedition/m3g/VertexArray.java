@@ -31,8 +31,21 @@ public class VertexArray extends Object3D {
         } else {
             shortValues = new short[numVertices * numComponents];
         }
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate(numVertices, numComponents, componentSize);
         register();
+    }
+
+    /** Re-uploads the values the MIDlet set while the renderer was down. */
+    void applyDeferred() {
+        if (byteValues != null) {
+            nSetByte(handle, 0, numVertices, byteValues);
+        } else if (shortValues != null) {
+            nSetShort(handle, 0, numVertices, shortValues);
+        }
     }
 
     public int getVertexCount()   { return numVertices; }

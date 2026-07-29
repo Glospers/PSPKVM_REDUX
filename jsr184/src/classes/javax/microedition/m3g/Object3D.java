@@ -82,7 +82,94 @@ public abstract class Object3D {
      */
     private static java.util.Hashtable wrappers = new java.util.Hashtable();
 
+    /**
+     * Objects constructed before the renderer existed, in construction order.
+     *
+     * m3gCreate* needs an M3GInterface, and creating that interface is what
+     * starts EGL and pspgl -- which must not happen while PSPKVM is still
+     * painting its own 2D (see the note above m3gIface in
+     * jsr184/src/native/m3g_object_kni.c). A MIDlet that builds geometry
+     * during startup therefore gets no engine object at the time, so the
+     * object is queued here and built for real the moment the renderer comes
+     * up, which is the first Loader.load or Graphics3D.bindTarget.
+     */
+    private static java.util.Vector deferred = new java.util.Vector();
+
+    /**
+     * Set while createWrapper is building an instance for a handle that
+     * already exists.
+     *
+     * Without it the public constructors would each build an engine object
+     * that adopt() then immediately destroys -- and because the arena reuses
+     * the freed block, the next unrelated object lands on the same address.
+     */
+    private static boolean wrapping;
+
     Object3D() {
+    }
+
+    /**
+     * The engine half of a public constructor.
+     *
+     * Every constructor that owns an engine object ends with this rather than
+     * calling nCreate directly, so that the two cases a raw nCreate gets wrong
+     * are handled in one place: building a wrapper for something that already
+     * exists, and building anything at all before the renderer is up.
+     */
+    void construct() {
+        if (wrapping) {
+            /* createWrapper is about to install the real handle. */
+            return;
+        }
+        createDeferred();
+        if (handle == 0) {
+            deferred.addElement(this);
+        }
+    }
+
+    /**
+     * Builds this object's engine object, if the renderer is up.
+     *
+     * Overridden by every class that has one; the override is the same
+     * nCreate call its constructor would have made, so it can be run either at
+     * construction time or later, when the renderer appears.
+     */
+    void createDeferred() {
+    }
+
+    /**
+     * Pushes the Java-side state of a just-built engine object into it.
+     *
+     * Runs in a second pass, after every deferred object has a handle, so that
+     * links pointing forward -- a Group whose child was constructed after it --
+     * resolve.
+     */
+    void applyDeferred() {
+    }
+
+    /**
+     * Builds everything queued while the renderer was down.
+     *
+     * Called from the only two places that can bring the renderer up:
+     * Loader.decode and Graphics3D.bindTarget.
+     */
+    static void flushDeferred() {
+        if (deferred.size() == 0) {
+            return;
+        }
+        java.util.Vector pending = deferred;
+        deferred = new java.util.Vector();
+
+        int n = pending.size();
+        for (int i = 0; i < n; i++) {
+            ((Object3D) pending.elementAt(i)).createDeferred();
+        }
+        for (int i = 0; i < n; i++) {
+            Object3D o = (Object3D) pending.elementAt(i);
+            if (o.handle != 0) {
+                o.applyDeferred();
+            }
+        }
     }
 
     /**
@@ -114,15 +201,35 @@ public abstract class Object3D {
      * Wraps a freshly loaded engine object in the Java class that matches its
      * m3gcore class id.
      *
-     * The instances are deliberately built through the package-private no-arg
-     * constructors rather than the public ones: the state already lives in the
-     * engine, and the public constructors would demand -- and then duplicate
-     * on the Java side -- vertex buffers, images and the like.
+     * The state already lives in the engine, so nothing here builds one. The
+     * `wrapping` flag is what enforces that: several of the classes below have
+     * a parameterless *public* constructor, and without the flag each of them
+     * would create an engine object that adopt() then destroys one line later.
+     * That is not merely wasteful -- the arena reuses the freed block, so the
+     * next unrelated object is handed the same address, and a log full of
+     * distinct objects sharing one handle is the result.
      *
      * @return the wrapper, or null if the id names a class that cannot appear
      *         in a file (Loader, RenderContext) or is not recognised at all
      */
     static Object3D createWrapper(int classID, int handle) {
+        Object3D object;
+
+        boolean outer = wrapping;
+        wrapping = true;
+        try {
+            object = instantiate(classID);
+        } finally {
+            wrapping = outer;
+        }
+        if (object == null) {
+            return null;
+        }
+        object.adopt(handle);
+        return object;
+    }
+
+    private static Object3D instantiate(int classID) {
         Object3D object;
 
         switch (classID) {
@@ -153,8 +260,6 @@ public abstract class Object3D {
         default:
             return null;
         }
-
-        object.adopt(handle);
         return object;
     }
 

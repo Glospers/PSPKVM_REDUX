@@ -16,6 +16,10 @@ public class Appearance extends Object3D {
     private Texture2D[] textures = new Texture2D[2];
 
     public Appearance() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -110,6 +114,19 @@ public class Appearance extends Object3D {
             return (Texture2D) Object3D.wrap(nGetTexture(handle, index));
         }
         return textures[index];
+    }
+
+    void applyDeferred() {
+        nSetLayer(handle, layer);
+        if (material != null)        { nSetMaterial(handle, material.handle); }
+        if (polygonMode != null)     { nSetPolygonMode(handle, polygonMode.handle); }
+        if (compositingMode != null) { nSetCompositingMode(handle, compositingMode.handle); }
+        if (fog != null)             { nSetFog(handle, fog.handle); }
+        for (int i = 0; i < textures.length; i++) {
+            if (textures[i] != null && textures[i].handle != 0) {
+                nSetTexture(handle, i, textures[i].handle);
+            }
+        }
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

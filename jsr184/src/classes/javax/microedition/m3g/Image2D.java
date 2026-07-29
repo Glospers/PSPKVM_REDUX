@@ -30,6 +30,17 @@ public class Image2D extends Object3D {
     private int format, width, height;
     private boolean mutable;
 
+    /*
+     * The constructor arguments, kept so an image built before the renderer
+     * existed can be rebuilt when it comes up. The pixels are held rather than
+     * copied into the engine and forgotten, which costs Java heap; there is no
+     * alternative, because m3gcore is the only thing that could otherwise hold
+     * them and it does not exist yet at that point.
+     */
+    private int createFlags = FLAG_DYNAMIC;
+    private byte[] pixels;
+    private byte[] palette;
+
     /** Wrapper for an object that already exists in the engine; see
      *  Object3D.createWrapper. */
     Image2D() {
@@ -41,8 +52,8 @@ public class Image2D extends Object3D {
         this.width = width;
         this.height = height;
         this.mutable = true;
-        handle = nCreate(format, width, height, FLAG_DYNAMIC);
-        register();
+        this.createFlags = FLAG_DYNAMIC;
+        construct();
     }
 
     public Image2D(int format, int width, int height, byte[] image) {
@@ -53,12 +64,9 @@ public class Image2D extends Object3D {
         this.format = format;
         this.width = width;
         this.height = height;
-        handle = nCreate(format, width, height, FLAG_DYNAMIC);
-        register();
-        if (handle != 0) {
-            nSetImage(handle, image);
-            nCommit(handle);
-        }
+        this.createFlags = FLAG_DYNAMIC;
+        this.pixels = image;
+        construct();
     }
 
     public Image2D(int format, int width, int height, byte[] image,
@@ -70,15 +78,10 @@ public class Image2D extends Object3D {
         this.format = format;
         this.width = width;
         this.height = height;
-        handle = nCreate(format, width, height, FLAG_PALETTED);
-        register();
-        if (handle != 0) {
-            /* The engine counts palette entries, not bytes
-             * (m3gcore/src/m3g_loader.c:2175). */
-            nSetPalette(handle, palette.length / bytesPerPixel(format), palette);
-            nSetImage(handle, image);
-            nCommit(handle);
-        }
+        this.createFlags = FLAG_PALETTED;
+        this.pixels = image;
+        this.palette = palette;
+        construct();
     }
 
     /**
@@ -107,10 +110,31 @@ public class Image2D extends Object3D {
         int[] argb = new int[this.width * this.height];
         img.getRGB(argb, 0, this.width, 0, 0, this.width, this.height);
 
-        handle = nCreate(format, this.width, this.height, FLAG_DYNAMIC);
+        this.createFlags = FLAG_DYNAMIC;
+        this.pixels = pack(argb, format);
+        construct();
+    }
+
+    void createDeferred() {
+        handle = nCreate(format, width, height, createFlags);
         register();
-        if (handle != 0) {
-            nSetImage(handle, pack(argb, format));
+    }
+
+    /**
+     * Uploads the pixels and, for an immutable image, seals it.
+     *
+     * m3gCommitImage is what sets M3G_STATIC, and the engine refuses both
+     * m3gSetImagePalette and m3gSetSubImage on an image that is already static
+     * (m3gcore/src/m3g_image.c:1558, :1726) -- so the order here is fixed.
+     */
+    void applyDeferred() {
+        if (palette != null) {
+            nSetPalette(handle, palette.length / bytesPerPixel(format), palette);
+        }
+        if (pixels != null) {
+            nSetImage(handle, pixels);
+        }
+        if (!mutable) {
             nCommit(handle);
         }
     }

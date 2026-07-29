@@ -24,6 +24,10 @@ public class PolygonMode extends Object3D {
     private boolean perspectiveCorrectionEnabled;
 
     public PolygonMode() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -101,6 +105,15 @@ public class PolygonMode extends Object3D {
 
     public boolean isPerspectiveCorrectionEnabled() {
         return perspectiveCorrectionEnabled;
+    }
+
+    void applyDeferred() {
+        nSetCulling(handle, culling);
+        nSetShading(handle, shading);
+        nSetWinding(handle, winding);
+        nSetTwoSidedLighting(handle, twoSidedLightingEnabled ? 1 : 0);
+        nSetLocalCameraLighting(handle, localCameraLightingEnabled ? 1 : 0);
+        nSetPerspectiveCorrection(handle, perspectiveCorrectionEnabled ? 1 : 0);
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

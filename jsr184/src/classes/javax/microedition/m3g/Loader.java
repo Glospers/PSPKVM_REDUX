@@ -101,6 +101,14 @@ public final class Loader {
                 throw new IOException(describe(count));
             }
 
+            /*
+             * Parsing a file is the other thing that brings the renderer up,
+             * so anything the MIDlet constructed before now can finally be
+             * built. Doing it here rather than lazily keeps the engine objects
+             * in the order the MIDlet made them.
+             */
+            Object3D.flushDeferred();
+
             boolean loaded = false;
             try {
                 Object3D[] roots = new Object3D[count];

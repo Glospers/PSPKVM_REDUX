@@ -23,6 +23,10 @@ public class Background extends Object3D {
     private boolean depthClearEnabled = true;
 
     public Background() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -103,6 +107,17 @@ public class Background extends Object3D {
     }
 
     public boolean isDepthClearEnabled() { return depthClearEnabled; }
+
+    void applyDeferred() {
+        nSetColor(handle, color);
+        if (image != null && image.handle != 0) {
+            nSetImage(handle, image.handle);
+        }
+        nSetImageMode(handle, imageModeX, imageModeY);
+        nSetCrop(handle, cropX, cropY, cropWidth, cropHeight);
+        nSetEnable(handle, ENABLE_COLOR_CLEAR, colorClearEnabled ? 1 : 0);
+        nSetEnable(handle, ENABLE_DEPTH_CLEAR, depthClearEnabled ? 1 : 0);
+    }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 

@@ -30,8 +30,12 @@ public class SkinnedMesh extends Mesh {
          * boolean). */
         super(vertices, submeshes, appearances, false);
         initSkeleton(skeleton);
-        handle = nCreate(vertices.handle,
-                         handles(submeshes),
+        construct();
+    }
+
+    void createDeferred() {
+        handle = nCreate(rawVertexBuffer().handle,
+                         handles(rawSubmeshes()),
                          handles(getAppearances()),
                          skeleton.handle);
         register();

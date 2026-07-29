@@ -29,9 +29,13 @@ public class MorphingMesh extends Mesh {
          * Mesh(VertexBuffer, IndexBuffer[], Appearance[], boolean). */
         super(base, submeshes, appearances, false);
         initTargets(targets);
-        handle = nCreate(base.handle,
+        construct();
+    }
+
+    void createDeferred() {
+        handle = nCreate(rawVertexBuffer().handle,
                          handles(targets),
-                         handles(submeshes),
+                         handles(rawSubmeshes()),
                          handles(getAppearances()));
         register();
     }

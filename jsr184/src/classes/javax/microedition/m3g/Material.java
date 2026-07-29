@@ -21,6 +21,10 @@ public class Material extends Object3D {
     private boolean vertexColorTrackingEnabled;
 
     public Material() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -72,6 +76,15 @@ public class Material extends Object3D {
 
     public boolean isVertexColorTrackingEnabled() {
         return vertexColorTrackingEnabled;
+    }
+
+    void applyDeferred() {
+        nSetColor(handle, AMBIENT,  ambientColor);
+        nSetColor(handle, DIFFUSE,  diffuseColor);
+        nSetColor(handle, EMISSIVE, emissiveColor);
+        nSetColor(handle, SPECULAR, specularColor);
+        nSetShininess(handle, shininess);
+        nSetVertexColorTracking(handle, vertexColorTrackingEnabled ? 1 : 0);
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

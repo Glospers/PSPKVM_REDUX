@@ -18,6 +18,10 @@ public class VertexBuffer extends Object3D {
         for (int i = 0; i < 2; i++) {
             texScaleBias[i][0] = 1.0f;
         }
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -110,6 +114,30 @@ public class VertexBuffer extends Object3D {
 
     public int getDefaultColor() {
         return defaultColor;
+    }
+
+    void applyDeferred() {
+        if (positions != null && positions.handle != 0) {
+            nSetPositions(handle, positions.handle, positionScaleBias[0],
+                          new float[] { positionScaleBias[1],
+                                        positionScaleBias[2],
+                                        positionScaleBias[3] });
+        }
+        if (normals != null && normals.handle != 0) {
+            nSetNormals(handle, normals.handle);
+        }
+        if (colors != null && colors.handle != 0) {
+            nSetColors(handle, colors.handle);
+        }
+        for (int i = 0; i < texCoords.length; i++) {
+            if (texCoords[i] != null && texCoords[i].handle != 0) {
+                nSetTexCoords(handle, i, texCoords[i].handle, texScaleBias[i][0],
+                              new float[] { texScaleBias[i][1],
+                                            texScaleBias[i][2],
+                                            texScaleBias[i][3] });
+            }
+        }
+        nSetDefaultColor(handle, defaultColor);
     }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */

@@ -18,10 +18,45 @@ package javax.microedition.m3g;
  */
 public abstract class Transformable extends Object3D {
 
+    /*
+     * A mirror of the absolute setters, kept for one reason: an object built
+     * before the renderer came up has no engine object to hold its transform,
+     * and the transform is what decides where it ends up on screen. These are
+     * replayed by applyDeferred once the real object exists.
+     *
+     * The relative operations -- translate, scale, preRotate, postRotate --
+     * are NOT mirrored. Composing two axis-angle rotations needs quaternion
+     * arithmetic this class does not have, and the alternative of keeping a
+     * second composed matrix would then disagree with the engine's own
+     * composition order. A MIDlet that calls them before the first
+     * Loader.load or bindTarget loses those calls; one that uses the absolute
+     * setters, which is the common case and the only one this port has seen,
+     * does not.
+     */
+    private float[] xform;
+    private float tx, ty, tz;
+    private float sx = 1.0f, sy = 1.0f, sz = 1.0f;
+    private float angle, ax, ay, az = 1.0f;
+
     Transformable() {
     }
 
+    void applyDeferred() {
+        if (xform != null) {
+            nSetTransform(handle, xform);
+        }
+        nSetTranslation(handle, tx, ty, tz);
+        nSetScale(handle, sx, sy, sz);
+        nSetOrientation(handle, angle, ax, ay, az);
+    }
+
     public void setTransform(Transform transform) {
+        if (transform != null) {
+            xform = new float[16];
+            transform.get(xform);
+        } else {
+            xform = null;
+        }
         if (handle != 0) {
             nSetTransform(handle, (transform != null) ? transform.rows() : null);
         }
@@ -33,6 +68,8 @@ public abstract class Transformable extends Object3D {
         }
         if (handle != 0) {
             nGetTransform(handle, transform.rows());
+        } else if (xform != null) {
+            transform.set(xform);
         } else {
             transform.setIdentity();
         }
@@ -50,12 +87,14 @@ public abstract class Transformable extends Object3D {
     }
 
     public void setTranslation(float tx, float ty, float tz) {
+        this.tx = tx; this.ty = ty; this.tz = tz;
         if (handle != 0) {
             nSetTranslation(handle, tx, ty, tz);
         }
     }
 
     public void translate(float tx, float ty, float tz) {
+        this.tx += tx; this.ty += ty; this.tz += tz;
         if (handle != 0) {
             nTranslate(handle, tx, ty, tz);
         }
@@ -71,17 +110,19 @@ public abstract class Transformable extends Object3D {
         if (handle != 0) {
             nGetTranslation(handle, translation);
         } else {
-            translation[0] = 0.0f; translation[1] = 0.0f; translation[2] = 0.0f;
+            translation[0] = tx; translation[1] = ty; translation[2] = tz;
         }
     }
 
     public void setScale(float sx, float sy, float sz) {
+        this.sx = sx; this.sy = sy; this.sz = sz;
         if (handle != 0) {
             nSetScale(handle, sx, sy, sz);
         }
     }
 
     public void scale(float sx, float sy, float sz) {
+        this.sx *= sx; this.sy *= sy; this.sz *= sz;
         if (handle != 0) {
             nScale(handle, sx, sy, sz);
         }
@@ -97,11 +138,12 @@ public abstract class Transformable extends Object3D {
         if (handle != 0) {
             nGetScale(handle, scale);
         } else {
-            scale[0] = 1.0f; scale[1] = 1.0f; scale[2] = 1.0f;
+            scale[0] = sx; scale[1] = sy; scale[2] = sz;
         }
     }
 
     public void setOrientation(float angle, float ax, float ay, float az) {
+        this.angle = angle; this.ax = ax; this.ay = ay; this.az = az;
         if (handle != 0) {
             nSetOrientation(handle, angle, ax, ay, az);
         }
@@ -129,8 +171,8 @@ public abstract class Transformable extends Object3D {
         if (handle != 0) {
             nGetOrientation(handle, angleAxis);
         } else {
-            angleAxis[0] = 0.0f; angleAxis[1] = 0.0f;
-            angleAxis[2] = 0.0f; angleAxis[3] = 1.0f;
+            angleAxis[0] = angle; angleAxis[1] = ax;
+            angleAxis[2] = ay;    angleAxis[3] = az;
         }
     }
 

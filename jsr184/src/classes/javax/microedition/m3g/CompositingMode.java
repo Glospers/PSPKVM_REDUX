@@ -23,6 +23,10 @@ public class CompositingMode extends Object3D {
     private boolean alphaWriteEnabled = true;
 
     public CompositingMode() {
+        construct();
+    }
+
+    void createDeferred() {
         handle = nCreate();
         register();
     }
@@ -109,6 +113,16 @@ public class CompositingMode extends Object3D {
 
     public float getDepthOffsetFactor() { return depthOffsetFactor; }
     public float getDepthOffsetUnits()  { return depthOffsetUnits; }
+
+    void applyDeferred() {
+        nSetBlending(handle, blending);
+        nSetAlphaThreshold(handle, alphaThreshold);
+        nSetDepthOffset(handle, depthOffsetFactor, depthOffsetUnits);
+        nEnableDepthTest(handle, depthTestEnabled ? 1 : 0);
+        nEnableDepthWrite(handle, depthWriteEnabled ? 1 : 0);
+        nEnableColorWrite(handle, colorWriteEnabled ? 1 : 0);
+        nEnableAlphaWrite(handle, alphaWriteEnabled ? 1 : 0);
+    }
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 
