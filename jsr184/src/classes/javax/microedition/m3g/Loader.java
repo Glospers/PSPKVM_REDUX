@@ -102,12 +102,20 @@ public final class Loader {
             }
 
             /*
-             * Parsing a file is the other thing that brings the renderer up,
-             * so anything the MIDlet constructed before now can finally be
-             * built. Doing it here rather than lazily keeps the engine objects
-             * in the order the MIDlet made them.
+             * NOT the place to build deferred objects, even though the
+             * renderer is up by the time we get here.
+             *
+             * Materialising an Image2D commits it, and committing it uploads
+             * the texture there and then -- glGenTextures, glBindTexture,
+             * glTexImage2D (m3gcore/src/m3g_image.inl:146, :157, :190). That is
+             * real GE traffic, and doing it here means doing it while PSPKVM's
+             * own display thread is blitting the MIDP screen with sceGu. The
+             * two drive the same hardware and do not coordinate.
+             *
+             * So the flush belongs in Graphics3D.bindTarget, inside the window
+             * the MIDlet has asked to draw in, which is the only period this
+             * port was ever designed to have pspgl active.
              */
-            Object3D.flushDeferred();
 
             boolean loaded = false;
             try {
