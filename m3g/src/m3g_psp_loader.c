@@ -63,6 +63,16 @@ M3GInterface m3gPspGetInterface(void)
          * See src/m3g_psp_vidmem.c. */
         m3gPspReserveVram();
 
+        /* Then bring EGL up and keep a context current, before the engine can
+         * touch GL at all. m3gcore only makes one current inside a bound
+         * target, but reaches GL well outside one -- committing an Image2D
+         * uploads its texture immediately (m3gcore/src/m3g_image.inl:146) --
+         * and pspgl writes its command stream through a global current-context
+         * pointer it never checks. Doing this first also means m3gCreateInterface
+         * finds EGL already up and keeps it that way (m3g_interface.c:1382)
+         * instead of terminating it when its probe finishes. */
+        m3gPspHoldGLContext();
+
         /* Zero first: M3Gparams has nine members and only two of them are
          * mandatory (src/m3g_interface.c:1597-1604); the rest must be NULL,
          * not garbage, or m3gCreateInterface will happily install a stack

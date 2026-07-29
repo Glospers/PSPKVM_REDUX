@@ -51,6 +51,8 @@
 
 #include <EGL/egl.h>
 
+#include <stddef.h>     /* NULL -- EGL/egl.h does not pull in a libc header */
+
 /* The PSP display is fixed at 480x272. */
 #define PSP_SCREEN_W 480
 #define PSP_SCREEN_H 272
@@ -177,4 +179,87 @@ EGLSurface eglCreatePixmapSurface (EGLDisplay dpy, EGLConfig config,
      * matching m3gglGetNativeBitmapParams for the same reason. */
     (void) dpy; (void) config; (void) pixmap; (void) attrib_list;
     return EGL_NO_SURFACE;
+}
+
+/*----------------------------------------------------------------------
+ * The process-wide GL context
+ *
+ * pspgl keeps the current context in one global, __pspgl_curctx, and every
+ * path that talks to the GE dereferences it without checking -- including
+ * __pspgl_dlist_enqueue_cmd, which is where the command stream is written.
+ * With no context current that global is NULL and the write lands on address
+ * zero.
+ *
+ * m3gcore does not keep a context current between frames.  m3gConfigureGL
+ * makes one current only long enough to read the driver's limits, then calls
+ * eglMakeCurrent(dpy, NULL, NULL, NULL) and destroys it
+ * (m3gcore/src/m3g_interface.c:1324-1326); a rendering context becomes current
+ * again only inside a bound target.  That is fine as long as nothing else in
+ * the engine touches GL -- but plenty does.  Committing an Image2D runs
+ * glGenTextures, glBindTexture and glTexImage2D (m3gcore/src/m3g_image.inl:146,
+ * :157, :190), and a MIDlet may well build its textures long before it ever
+ * binds a target.  pspgl faults, a long way from the cause.
+ *
+ * So the port owns a context of its own and keeps it current for the lifetime
+ * of the process.  m3gcore is built for exactly this: m3g_interface.c:1382
+ * checks whether the application has already brought EGL up and, if so, takes
+ * a reference it never releases, so the probe's teardown cannot terminate EGL
+ * underneath us.  That is why this runs *before* m3gCreateInterface.
+ *
+ * The pbuffer is tiny and never drawn into.  It exists because EGL has no way
+ * to make a context current without a surface; with all of edram reserved it
+ * costs a small main-memory allocation and nothing else.
+ *--------------------------------------------------------------------*/
+
+static EGLDisplay s_holdDisplay = EGL_NO_DISPLAY;
+static EGLContext s_holdContext = EGL_NO_CONTEXT;
+static EGLSurface s_holdSurface = EGL_NO_SURFACE;
+
+int m3gPspHoldGLContext(void)
+{
+    EGLConfig config;
+    EGLint numConfigs = 0;
+    EGLint attrib[5];
+
+    /* Already built: just make sure it is the current one again. m3gcore
+     * makes its own context current while a target is bound and does not
+     * necessarily restore ours afterwards. */
+    if (s_holdContext != EGL_NO_CONTEXT) {
+        eglMakeCurrent(s_holdDisplay, s_holdSurface, s_holdSurface,
+                       s_holdContext);
+        return 1;
+    }
+
+    s_holdDisplay = eglGetDisplay(0);
+    if (!eglInitialize(s_holdDisplay, NULL, NULL)) {
+        return -1;
+    }
+
+    attrib[0] = EGL_SURFACE_TYPE;
+    attrib[1] = EGL_PBUFFER_BIT;
+    attrib[2] = EGL_NONE;
+    if (!eglChooseConfig(s_holdDisplay, attrib, &config, 1, &numConfigs)
+        || numConfigs <= 0) {
+        return -1;
+    }
+
+    s_holdContext = eglCreateContext(s_holdDisplay, config, NULL, NULL);
+    if (s_holdContext == EGL_NO_CONTEXT) {
+        return -1;
+    }
+
+    attrib[0] = EGL_WIDTH;
+    attrib[1] = 16;
+    attrib[2] = EGL_HEIGHT;
+    attrib[3] = 16;
+    attrib[4] = EGL_NONE;
+    s_holdSurface = eglCreatePbufferSurface(s_holdDisplay, config, attrib);
+    if (s_holdSurface == EGL_NO_SURFACE) {
+        eglDestroyContext(s_holdDisplay, s_holdContext);
+        s_holdContext = EGL_NO_CONTEXT;
+        return -1;
+    }
+
+    eglMakeCurrent(s_holdDisplay, s_holdSurface, s_holdSurface, s_holdContext);
+    return 1;
 }

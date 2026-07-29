@@ -241,6 +241,25 @@ M3Gint m3gPspReserveVram(void);
 /*! \brief Bytes of edram reserved for PSPKVM, or 0 if the reservation failed. */
 M3Gint m3gPspGetReservedVram(void);
 
+/*!
+ * \brief Brings EGL up and keeps a context current for the whole process.
+ *
+ * pspgl dereferences its current-context global on every path that reaches the
+ * GE, without checking it -- so any GL call made while no context is current
+ * writes through a null display list. m3gcore only keeps a context current
+ * inside a bound target, yet touches GL well outside one: committing an
+ * Image2D uploads a texture there and then (m3gcore/src/m3g_image.inl:146).
+ * Holding a context of our own removes that whole class of fault.
+ *
+ * Must be called *before* m3gCreateInterface, so that m3gcore sees EGL already
+ * initialised and takes the reference that stops its own probe from tearing it
+ * down again (m3gcore/src/m3g_interface.c:1382). Idempotent: later calls just
+ * re-assert the context as current.
+ *
+ * \return 1 if a context is current, -1 if EGL refused
+ */
+int m3gPspHoldGLContext(void);
+
 /*----------------------------------------------------------------------
  * The engine's private heap
  *

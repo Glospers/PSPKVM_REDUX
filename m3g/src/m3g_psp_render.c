@@ -194,6 +194,12 @@ M3Gint m3gPspReleaseTarget(void)
     m3gReleaseTarget(ctx);
     s_bound = M3G_FALSE;
 
+    /* m3gcore made its own context current for the frame and does not put ours
+     * back. Re-assert it, so that anything touching GL between frames -- an
+     * Image2D being committed, a texture being freed -- still finds a current
+     * context rather than pspgl's null one. */
+    m3gPspHoldGLContext();
+
     return m3gPspRenderError(m3gPspPeekInterface());
 }
 
