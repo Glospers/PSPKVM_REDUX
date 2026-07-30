@@ -153,6 +153,7 @@ OBJS        := $(OBJDIR)/m3g_core.o \
                $(OBJDIR)/m3g_psp_vidmem.o \
                $(OBJDIR)/m3g_psp_gl.o \
                $(OBJDIR)/m3g_psp_egl.o \
+               $(OBJDIR)/m3g_psp_heapcheck.o \
                $(OBJDIR)/m3g_psp_native.o
 
 .PHONY: all clean

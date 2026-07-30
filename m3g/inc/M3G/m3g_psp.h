@@ -277,6 +277,23 @@ M3Gint m3gPspGetReservedVram(void);
 int m3gPspHoldGLContext(void);
 
 /*----------------------------------------------------------------------
+ * C heap probe (diagnostic -- see src/m3g_psp_heapcheck.c)
+ *
+ * pspgl was handed a pointer 3.7 MB below the heap by memalign and zeroed
+ * 2336 bytes at it, which is what wiped lcd.c's statics and crashed the blit.
+ * An allocator only does that once its metadata has been overwritten, so the
+ * heap is already broken before pspgl asks.  These two report *when* it broke.
+ *
+ * Note that the Java object heap is itself one huge malloc'd block (see the
+ * comment below), so the VM writing past its own heap would damage exactly the
+ * libc metadata in question -- which is why the probe is called around the
+ * phases that allocate Java objects heavily, not only around engine calls.
+ *--------------------------------------------------------------------*/
+
+void m3gPspHeapCheck(const char *tag);
+void m3gPspHeapReport(void);
+
+/*----------------------------------------------------------------------
  * The engine's private heap
  *
  * m3gcore does not allocate from the C heap.  It cannot: on PSPKVM the Java

@@ -53,6 +53,11 @@
 
 #include <stddef.h>     /* NULL -- EGL/egl.h does not pull in a libc header */
 
+/* Declared here rather than by including M3G/m3g_psp.h: this translation unit
+ * must see exactly one set of EGL typedefs (see the note above), and pulling in
+ * the port header risks the other. The definition is in src/m3g_psp_heapcheck.c. */
+extern void m3gPspHeapCheck(const char *tag);
+
 /* The PSP display is fixed at 480x272. */
 #define PSP_SCREEN_W 480
 #define PSP_SCREEN_H 272
@@ -261,6 +266,16 @@ int m3gPspHoldGLContext(void)
         || numConfigs <= 0) {
         return -1;
     }
+
+    /*
+     * The known casualty. pspgl's eglCreateContext does memalign(16, 2336) and
+     * zeroes what it gets back; when the heap is already damaged that write
+     * lands in .data and takes lcd.c's screen dimensions with it. Probing here
+     * says whether the heap was sound the instant before -- if it was, the
+     * damage is pspgl's own doing after all, and if it was not, this call is
+     * merely where a pre-existing fault becomes fatal.
+     */
+    m3gPspHeapCheck("pre-eglCreateContext");
 
     s_holdContext = eglCreateContext(s_holdDisplay, config, NULL, NULL);
     if (s_holdContext == EGL_NO_CONTEXT) {

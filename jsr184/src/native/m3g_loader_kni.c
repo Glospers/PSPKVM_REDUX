@@ -74,6 +74,11 @@ static void m3gReportArena(jint result)
     char line[192];
     static int reportedOnce;
 
+    /* Paired with the "load-enter" probe: if the heap was sound going in and
+     * wild coming out, parsing this scene is what damaged it, and the search
+     * narrows to one code path in one call. */
+    m3gPspHeapCheck("load-exit");
+
     if (javacall_diag_log == 0) {
         return;
     }
@@ -132,6 +137,19 @@ Java_javax_microedition_m3g_Loader_nLoadData()
     jint offset = KNI_GetParameterAsInt(2);
     jint length = KNI_GetParameterAsInt(3);
     jint result;
+    static int heapReported;
+
+    /*
+     * The first load is the earliest M3G code the title reaches, so a wild
+     * pointer here would mean the heap was already broken before any of this
+     * port ran -- which would move the fault out of M3G entirely and is worth
+     * knowing before anything else is suspected.
+     */
+    if (!heapReported) {
+        heapReported = 1;
+        m3gPspHeapReport();
+    }
+    m3gPspHeapCheck("load-enter");
 
 #if defined(M3G_TRACE)
     /* Entry marker. m3gReportArena below only runs once the parse is over, so
