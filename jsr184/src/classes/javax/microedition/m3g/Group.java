@@ -98,6 +98,7 @@ public class Group extends Node {
                 return found;
             }
         }
+        nDiag(-2, userID);           /* not in the engine and not among the children */
         return null;
     }
 

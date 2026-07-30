@@ -377,6 +377,38 @@ static void m3gStoreMatrix(jobject array, const M3GMatrix *in)
  * the object a public constructor built when the instance is really a wrapper
  * for one the loader already made.
  */
+/*
+ * private static native void nDiag(int a, int b);
+ *
+ * TEMPORARY -- a logging path out of the class library that is known to work.
+ *
+ * The Java side needs to report what it sees, and System.out does not reach the
+ * log: only javacall_print is mirrored there, and MIDP's stream does not go
+ * through it. A previous build spent a run finding that out. This goes straight
+ * at javacall_diag_log, the same sink every M3G trace line already uses, so
+ * anything printed through it is certain to arrive.
+ *
+ * Capped independently of the shared trace budget, so an exhausted budget
+ * elsewhere cannot silently swallow these.
+ */
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_Object3D_nDiag()
+{
+    static int left = 40;
+
+    jint a = KNI_GetParameterAsInt(1);
+    jint b = KNI_GetParameterAsInt(2);
+
+    if (javacall_diag_log != 0 && left > 0) {
+        char line[96];
+        --left;
+        /* "javax." so the filter on the print path lets it through. */
+        sprintf(line, "javax.m3g diag %d %d\n", (int) a, (int) b);
+        javacall_diag_log(line);
+    }
+    KNI_ReturnVoid();
+}
+
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Object3D_nDeleteRef()
 {

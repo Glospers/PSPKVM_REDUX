@@ -223,6 +223,22 @@ public abstract class Object3D {
             wrapping = outer;
         }
         if (object == null) {
+            /*
+             * TEMPORARY -- name the class id we cannot wrap.
+             *
+             * A null from here is how the title gets hurt: it loads a scene,
+             * asks the engine for a node by user id, and this hands back null
+             * because the id names a class with no case in instantiate(). The
+             * title dereferences it, throws a NullPointerException, catches it,
+             * and abandons its loading thread without notifying whoever waits --
+             * which leaves every Java thread blocked and the VM polling forever.
+             * One such exception per loaded scene is exactly what the log shows.
+             *
+             * Printed with a "javax." prefix deliberately: the diagnostic on the
+             * print path only forwards lines that look like Java exception text,
+             * and this has to pass that filter to reach the log at all.
+             */
+            nDiag(classID, handle);
             return null;
         }
         object.adopt(handle);
@@ -324,8 +340,13 @@ public abstract class Object3D {
 
     public Object3D find(int userID) {
         if (handle != 0) {
-            return wrap(nFind(handle, userID));
+            Object3D found = wrap(nFind(handle, userID));
+            if (found == null) {
+                nDiag(-1, userID);   /* engine knows no such id, or wrap refused */
+            }
+            return found;
         }
+        nDiag(-3, userID);           /* asked of an object with no engine behind it */
         return null;
     }
 
@@ -387,6 +408,10 @@ public abstract class Object3D {
      */
 
     /** Drops one reference, destroying the object if it was the last. */
+    /* TEMPORARY -- logging path that reaches ms0:/pspkvm_vm.log. System.out does
+     * not; only javacall_print is mirrored there. See m3g_object_kni.c. */
+    static native void nDiag(int a, int b);
+
     private static native void nDeleteRef(int handle);
 
     private static native void nSetUserID(int handle, int userID);
