@@ -221,6 +221,25 @@ int m3gPspHoldGLContext(void)
     EGLint numConfigs = 0;
     EGLint attrib[5];
 
+#if defined(M3G_PSP_NO_HELD_CONTEXT)
+    /*
+     * BISECT SWITCH -- see the note in m3g/Makefile.
+     *
+     * Holding a context is what makes pspgl live outside a bind, so it is also
+     * the first thing to take away when the display freezes. With this defined
+     * the port behaves as it did before the context was introduced: EGL is
+     * brought up and torn down by m3gConfigureGL's probe alone, and nothing is
+     * current between frames.
+     *
+     * The consequence, which is why this is a switch and not a revert: any GL
+     * call outside a bound target then runs with pspgl's current-context global
+     * NULL and faults. Committing an Image2D does exactly that
+     * (m3gcore/src/m3g_image.inl:146), so this is only safe while object
+     * creation is also disabled.
+     */
+    return -1;
+#endif
+
     /* Already built: just make sure it is the current one again. m3gcore
      * makes its own context current while a target is bound and does not
      * necessarily restore ours afterwards. */
