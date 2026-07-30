@@ -24,6 +24,13 @@
  * published by the Free Software Foundation.
  */
 
+/* TEMPORARY -- remove once the second-loading-screen stall is located.
+ *
+ * Defined here rather than through subsystem.gmk because the makefile route did
+ * not reach this file: the flag was present in the tree and the objects were
+ * deleted, and the compiled binary still lacked the trace. Source is certain. */
+#define M3G_TRACE 1
+
 #include <stddef.h>     /* NULL -- kni.h does not pull in a libc header */
 #include <stdio.h>      /* sprintf, for the diagnostic line below       */
 

@@ -54,6 +54,15 @@ SUBSYSTEM_JSR_184_NATIVE_FILES = \
 # linked into the ELF by docker/patches/0042; only its headers are needed here.
 SUBSYSTEM_JSR_184_EXTRA_INCLUDES = -I$(JSR_184_DIR)/../m3g/inc
 
+# TEMPORARY -- per-load tracing. Remove once the stall is located.
+#
+# Without it m3gReportArena logs the first successful load and then goes quiet,
+# so a log showing one "M3G: load" says nothing about how many scenes were
+# actually parsed. With the title now parked with no runnable Java thread, the
+# question is whether loading progresses at all, and that needs the begin/end
+# marker on every load rather than on the first.
+SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_TRACE
+
 # SubsystemDefs.gmk's JSR-184 block only forwards the file lists, so -- as in
 # jsr179/src/config/subsystem.gmk:189 -- the include path is added here.
 EXTRA_INCLUDES += $(SUBSYSTEM_JSR_184_EXTRA_INCLUDES)
