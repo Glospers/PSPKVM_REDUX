@@ -422,6 +422,23 @@ Java_javax_microedition_m3g_Object3D_nAnimate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
+#if defined(M3G_NO_ANIMATE)
+    /*
+     * BISECT SWITCH -- see jsr184/src/config/subsystem.gmk.
+     *
+     * m3gAnimate runs applyAnimation over the whole subtree, writing node
+     * transforms, morph weights, material colours and camera parameters as it
+     * goes -- by far the broadest write of any accessor here, and the only one
+     * m3gcore drives recursively. On main this returned 0 without touching the
+     * engine, so it has never run on this platform until now, and the title
+     * calls it every frame.
+     *
+     * Returning 0 means "the animation is not valid for any length of time",
+     * which is a legal answer a MIDlet must cope with.
+     */
+    KNI_ReturnInt(0);
+#endif
+
     if (handle == 0) {
         KNI_ReturnInt(0);
     }

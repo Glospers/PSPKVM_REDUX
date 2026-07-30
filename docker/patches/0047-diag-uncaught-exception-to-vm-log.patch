@@ -1,0 +1,51 @@
+diff --git a/javacall/implementation/psp_mips/common/logging.c b/javacall/implementation/psp_mips/common/logging.c
+index 12f3b21..e59c5ae 100644
+--- a/javacall/implementation/psp_mips/common/logging.c
++++ b/javacall/implementation/psp_mips/common/logging.c
+@@ -45,7 +45,46 @@ static int log_channel_file = 0;
+  *
+  * @param s a NULL terminated character buffer to be printed
+ */
++/*
++ * Diagnostic: give javacall_print a sink, filtered to failures.
++ *
++ * This is the only way an uncaught Java exception becomes visible on this
++ * platform. When a thread dies with one, the VM reports it -- Thread.cpp:202
++ * does tty->print("Uncaught exception: ") and then the stack trace -- and that
++ * output travels JVMSPI_PrintRaw (Main_javacall.cpp:43) -> pcsl_print (the
++ * javacall variant) -> javacall_print. Which, by default, reaches nothing:
++ * every channel below is off unless javacall_logging_channel() switches it on.
++ * So a MIDlet thread can die silently, the VM parks in javacall_event_receive
++ * with no runnable thread, and the screen holds its last frame forever. That
++ * looks exactly like a hang and leaves no trace at all.
++ *
++ * Filtered because javacall_diag_log opens, appends and closes per line, and
++ * MIDP prints a line per resource stream: mirroring everything makes the memory
++ * stick the bottleneck and the runtime crawls. The tests below match the
++ * uncaught-exception banner, the exception class names, the "at ..." frames of
++ * a stack trace, and MIDP's own error reports -- and nothing else.
++ *
++ * Declared here because the definition is further down this file.
++ */
++void javacall_diag_log(const char *s);
++
++static int javacall_diag_interesting(const char *s) {
++    if (s == NULL) {
++        return 0;
++    }
++    return (strstr(s, "ncaught")  != NULL      /* "Uncaught exception: " */
++         || strstr(s, "xception") != NULL
++         || strstr(s, "rror")     != NULL
++         || strstr(s, "java.")    != NULL
++         || strstr(s, "javax.")   != NULL
++         || strstr(s, "\tat ")    != NULL      /* stack-trace frames */
++         || strstr(s, "  at ")    != NULL);
++}
++
+ void javacall_print(const char *s) {
++    if (javacall_diag_interesting(s)) {
++        javacall_diag_log(s);
++    }
+     
+     if (log_channel_consle) pspDebugScreenPrintf(s);
+     if (log_channel_startup) pspkvm_screen_log(s);
