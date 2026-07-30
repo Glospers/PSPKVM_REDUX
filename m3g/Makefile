@@ -137,18 +137,6 @@ DEFINES     := -DM3G_TARGET_SYMBIAN \
 # to paper over: raise this back to a value large enough to cover edram.
 DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=0
 
-# BISECT SWITCH -- TEMPORARY, REMOVE THIS LINE TO HOLD A GL CONTEXT AGAIN.
-#
-# Makes m3gPspHoldGLContext a no-op, so nothing is current between frames --
-# the behaviour before the context was introduced. Holding a context is what
-# makes pspgl live outside a bind, so it is the first thing to take away when
-# the display freezes rather than crashes.
-#
-# Only safe while object creation is also disabled: with no context current,
-# any GL call outside a bound target faults on pspgl's NULL context global, and
-# committing an Image2D makes one (m3gcore/src/m3g_image.inl:146).
-DEFINES     += -DM3G_PSP_NO_HELD_CONTEXT
-
 # Size of the engine's private heap (src/m3g_psp_arena.c).  Left unset the
 # source picks its own default; override on the command line to retune after
 # reading the peak= figure the KNI layer logs to ms0:/pspkvm_vm.log.

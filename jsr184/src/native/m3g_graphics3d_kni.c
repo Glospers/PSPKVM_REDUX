@@ -108,6 +108,35 @@ static void m3gMilestone(int which, const char *what, jint a, jint b)
     m3gLog(what, a, b);
 }
 
+/*
+ * FRAME EVENTS
+ *
+ * Bind and draw calls, entry and result, for the first few frames only.
+ *
+ * The milestones above say whether something ever happened; they cannot say
+ * where a stall is, because a call that never returns never reaches its
+ * milestone. These do: an entry line with no matching result line is a call
+ * that did not come back, which is precisely the distinction between dying
+ * before a draw and dying inside one.
+ *
+ * Budgeted rather than switched, because these run per frame and per node --
+ * roughly twenty lines a frame for this title -- and javacall_diag_log costs a
+ * whole open/write/close each time. Three frames' worth is enough to see the
+ * shape of the first frame and cheap enough not to be the thing being
+ * measured; after that it goes quiet on its own.
+ */
+#define M3G_EVENT_BUDGET 60
+static int s_eventLeft = M3G_EVENT_BUDGET;
+
+static void m3gEvent(const char *what, jint a, jint b)
+{
+    if (s_eventLeft <= 0) {
+        return;
+    }
+    --s_eventLeft;
+    m3gLog(what, a, b);
+}
+
 #if defined(M3G_TRACE)
 
 #define M3G_TRACE_BUDGET 200
@@ -200,6 +229,7 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
     }
 
     m3gMilestone(M3G_MILESTONE_BIND, "bind ok", width, height);
+    m3gEvent("bind", width, height);
     m3gTrace("bind ok", width, height);
     KNI_ReturnInt((width << 16) | height);
 }
@@ -284,7 +314,9 @@ Java_javax_microedition_m3g_Graphics3D_nRenderWorld()
         m3gTrace("renderWorld nohandle", 0, 0);
         KNI_ReturnInt(M3G_PSP_ERR_INVALID);
     }
+    m3gEvent("renderWorld>", handle, 0);
     result = m3gPspRenderWorld((M3GObject) handle);
+    m3gEvent("renderWorld<", handle, result);
     m3gTrace("renderWorld", handle, result);
     KNI_ReturnInt(result);
 }
@@ -311,7 +343,9 @@ Java_javax_microedition_m3g_Graphics3D_nRenderNode()
     transform = m3gFetchTransform(array, matrix);
     KNI_EndHandles();
 
+    m3gEvent("renderNode>", handle, 0);
     result = m3gPspRenderNode((M3GObject) handle, transform);
+    m3gEvent("renderNode<", handle, result);
     m3gMilestone((result == M3G_PSP_RENDER_OK) ? M3G_MILESTONE_RENDER_OK
                                                : M3G_MILESTONE_RENDER_FAIL,
                  (result == M3G_PSP_RENDER_OK) ? "renderNode ok"

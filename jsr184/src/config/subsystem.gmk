@@ -54,28 +54,6 @@ SUBSYSTEM_JSR_184_NATIVE_FILES = \
 # linked into the ELF by docker/patches/0042; only its headers are needed here.
 SUBSYSTEM_JSR_184_EXTRA_INCLUDES = -I$(JSR_184_DIR)/../m3g/inc
 
-# BISECT SWITCH -- TEMPORARY, REMOVE THIS LINE TO RE-ENABLE THE OBJECT LAYER.
-#
-# Makes every m3gCreate* refuse, so Object3D.handle stays 0 for everything a
-# MIDlet constructs -- the state the class library was in before the object
-# layer existed. Nothing else changes: all 158 natives are still linked, the
-# Loader path and its accessors still work, the GL context is still held.
-#
-# It exists to answer one question: is the memory corruption caused by building
-# engine objects at all? See the note above m3gIface in
-# jsr184/src/native/m3g_object_kni.c.
-SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_NO_OBJECT_CREATION
-
-# BISECT SWITCH -- TEMPORARY, REMOVE THIS LINE TO RE-ENABLE Object3D.animate().
-#
-# m3gAnimate walks the whole subtree through applyAnimation, writing node
-# transforms, morph weights, material colours and camera parameters. It is the
-# broadest write of any accessor in this file and the only one the engine
-# drives recursively. On main it returned 0 without touching the engine, so it
-# has never actually run on this platform -- and the title calls it every frame,
-# immediately after a scene loads.
-SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_NO_ANIMATE
-
 # SubsystemDefs.gmk's JSR-184 block only forwards the file lists, so -- as in
 # jsr179/src/config/subsystem.gmk:189 -- the include path is added here.
 EXTRA_INCLUDES += $(SUBSYSTEM_JSR_184_EXTRA_INCLUDES)
