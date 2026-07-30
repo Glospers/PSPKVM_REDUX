@@ -1,0 +1,143 @@
+--- a/psp/pspkvm.c
++++ b/psp/pspkvm.c
+@@ -53,6 +53,140 @@
+ 
+ PSP_HEAP_SIZE_KB(32768);
+ 
++#include <errno.h>
++
++/*
++ * Take the C heap from the top of the user partition, not the bottom.
++ *
++ * pspsdk's own _sbrk (libcglue.a, _sbrk.o) allocates the heap with
++ * PSP_SMEM_Low, and the kernel's idea of the lowest free address on this
++ * platform is about 0x08e20000 -- inside this module. Upstream got away with
++ * that because its EBOOT ended below that address; ours does not. The module
++ * runs to _end = 0x091dad88, so the heap and .data overlapped by roughly
++ * 3.85 MB and ordinary mallocs wrote over the program image. The visible
++ * result was pspgl's eglCreateContext zeroing its freshly allocated 2336-byte
++ * context straight across lcd.c's statics, leaving vscr_w/vscr_h at zero and
++ * making javacall_lcd_flush_partial_internal divide by zero (lcd.c:380); the
++ * same writes zeroed the event queue's semaphore handle, which is what looked
++ * like a hang.
++ *
++ * Size is not a workaround: measured with 32 MB and with 16 MB, the base moved
++ * by 16 KB and the first allocation was identical to the byte. Nor is
++ * PSP_HEAP_SIZE_KB's negative form, which crashes during startup inside
++ * malloc_extend_top by way of pthread_once and _calloc_r -- that is the failure
++ * the fixed size above was introduced to avoid.
++ *
++ * Allocating high fixes the geometry: the block is taken from the far end of
++ * the partition and grows upward inside itself, so it cannot reach the image.
++ * The returned base is checked against _end regardless, and the request shrunk
++ * by exactly the overlap and retried if it ever does reach -- the partition's
++ * layout is the kernel's business and not something to assume.
++ *
++ * _sbrk is overridden rather than sbrk because pspsdk keeps it in an object of
++ * its own that exports nothing else, so defining it here simply leaves that
++ * object unused instead of colliding with it. newlib's chain is
++ * sbrk -> _sbrk_r -> _sbrk, and only the last link decides where memory is.
++ */
++
++extern char _end[];
++
++static char  *pspkvm_heap_base;
++static char  *pspkvm_heap_cur;
++static char  *pspkvm_heap_end;
++static SceUID pspkvm_heap_uid = -1;
++
++/* Left for the kernel's own needs -- thread stacks and the like still come out
++ * of this partition after the heap is taken. */
++#define PSPKVM_HEAP_RESERVE   (1024 * 1024)
++/* Below this there is no point continuing: the VM's Java heap is one large
++ * malloc and will fail anyway, and a diagnosable refusal beats a wild pointer. */
++#define PSPKVM_HEAP_MINIMUM   (6 * 1024 * 1024)
++
++static int pspkvm_heap_init(void)
++{
++    SceSize avail, size;
++    int attempt;
++
++    avail = sceKernelMaxFreeMemSize();
++    if (avail <= (PSPKVM_HEAP_RESERVE + PSPKVM_HEAP_MINIMUM)) {
++        return -1;
++    }
++
++    size = (avail - PSPKVM_HEAP_RESERVE) & ~(SceSize) 0xFFF;
++
++    for (attempt = 0; attempt < 32 && size >= PSPKVM_HEAP_MINIMUM; ++attempt) {
++        SceUID uid = sceKernelAllocPartitionMemory(PSP_MEMORY_PARTITION_USER,
++                                                   "pspkvm_heap",
++                                                   PSP_SMEM_High,
++                                                   size, NULL);
++        if (uid >= 0) {
++            char *base = (char *) sceKernelGetBlockHeadAddr(uid);
++
++            if (base != NULL && base >= _end) {
++                pspkvm_heap_uid  = uid;
++                pspkvm_heap_base = base;
++                pspkvm_heap_cur  = base;
++                pspkvm_heap_end  = base + size;
++                return 0;
++            }
++
++            sceKernelFreePartitionMemory(uid);
++
++            if (base != NULL) {
++                /* Reaches into the image: give back exactly the overlap, plus a
++                 * page so the next attempt clears _end rather than touching it. */
++                SceSize overlap = (SceSize) (_end - base) + 0x1000;
++                if (overlap >= size) {
++                    break;
++                }
++                size = (size - overlap) & ~(SceSize) 0xFFF;
++                continue;
++            }
++        }
++
++        /* Refused outright, or the block head could not be read: step down and
++         * try again rather than giving up on the first no. */
++        if (size < (1024 * 1024)) {
++            break;
++        }
++        size = (size - (1024 * 1024)) & ~(SceSize) 0xFFF;
++    }
++
++    return -1;
++}
++
++void *_sbrk(int incr)
++{
++    char *prev;
++
++    if (pspkvm_heap_uid < 0 && pspkvm_heap_init() != 0) {
++        errno = ENOMEM;
++        return (void *) -1;
++    }
++
++    if (incr == 0) {
++        return pspkvm_heap_cur;                 /* the break, for sbrk(0) */
++    }
++
++    if (incr > 0) {
++        if ((SceSize) incr > (SceSize) (pspkvm_heap_end - pspkvm_heap_cur)) {
++            errno = ENOMEM;
++            return (void *) -1;
++        }
++    } else {
++        /* malloc does return memory at the top of the heap, so shrinking has to
++         * work; it must not be allowed below the block, which is not ours. */
++        if ((SceSize) (-incr) > (SceSize) (pspkvm_heap_cur - pspkvm_heap_base)) {
++            errno = EINVAL;
++            return (void *) -1;
++        }
++    }
++
++    prev = pspkvm_heap_cur;
++    pspkvm_heap_cur += incr;
++    return prev;
++}
++
+ /* Modern pspdev's C runtime calls __timezone_update() -> setenv("TZ", ...) during
+    startup, but in a PRX `environ` is (re)initialized to garbage, so newlib's
+    setenv writes to a bad address and crashes before the VM ever runs. (The 2010
