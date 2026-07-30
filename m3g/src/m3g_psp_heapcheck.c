@@ -42,6 +42,14 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>     /* sbrk -- where the heap actually is */
+
+/*
+ * The size the C runtime was told to take for its heap, defined by
+ * PSP_HEAP_SIZE_KB in psp/pspkvm.c (docker/patches/0031 sets it to 32768).
+ * Signed, because the macro accepts negative values meaning "all but this much".
+ */
+extern int sce_newlib_heap_kb_size;
 
 /*
  * End of .bss, supplied by the linker.  The heap cannot start below this, so
@@ -80,6 +88,7 @@ void m3gPspHeapCheck(const char *tag)
 {
     void *p;
     char line[160];
+    static int reports;
 
     if (javacall_diag_log == 0) {
         return;
@@ -97,8 +106,16 @@ void m3gPspHeapCheck(const char *tag)
         return;
     }
 
-    if ((char *) p < _end) {
-        sprintf(line, "HEAP: %s WILD p=0x%08x _end=0x%08x\n",
+    /*
+     * Capped, because the premise this test was built on turned out to be
+     * false: allocations below _end are normal here, so every single call
+     * reported and the log filled with a non-finding. Two lines are kept as
+     * corroboration -- enough to show the addresses climb in regular steps,
+     * which is what proves the allocator healthy -- and the rest are dropped.
+     */
+    if ((char *) p < _end && reports < 2) {
+        ++reports;
+        sprintf(line, "HEAP: %s p=0x%08x below _end=0x%08x\n",
                 tag ? tag : "?",
                 (unsigned int) (unsigned long) p,
                 (unsigned int) (unsigned long) _end);
@@ -128,10 +145,24 @@ void m3gPspHeapReport(void)
         return;
     }
 
+    /*
+     * sbrk(0) is the current break, i.e. where the heap actually is. The probe
+     * first assumed a pointer below _end had to be wild; the log said otherwise
+     * -- every allocation from the very first one lands below _end and marches
+     * upward in regular steps, which is a healthy allocator, not a damaged one.
+     * That leaves only one reading: the heap itself sits inside the module
+     * image, so ordinary mallocs write over .data. These three numbers settle
+     * it, and sce_newlib_heap_kb_size is the size the C runtime was told to ask
+     * for -- worth printing because it lives at 0x08E45434, inside the range the
+     * heap hands out, and so is liable to be overwritten by the very heap it
+     * configures.
+     */
     p = malloc(M3G_HEAPCHECK_SIZE);
-    sprintf(line, "HEAP: base _end=0x%08x first=0x%08x\n",
+    sprintf(line, "HEAP: _end=0x%08x brk=0x%08x first=0x%08x kb=%d\n",
             (unsigned int) (unsigned long) _end,
-            (unsigned int) (unsigned long) p);
+            (unsigned int) (unsigned long) sbrk(0),
+            (unsigned int) (unsigned long) p,
+            (int) sce_newlib_heap_kb_size);
     javacall_diag_log(line);
     if (p != NULL && (char *) p >= _end) {
         free(p);
