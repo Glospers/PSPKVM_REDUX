@@ -258,6 +258,19 @@ static M3GInterface m3gIface(const char *what)
     m3gTrace("nocreate", what, 0);
     return NULL;
 #else
+    /*
+     * Tried and reverted: building objects as soon as an interface exists,
+     * rather than waiting for a bind, changes nothing about the stall. It gave
+     * real handles to the 8 objects the title builds after its first load --
+     * arena use went from 48832 to 118912, so they were genuinely constructed --
+     * and the title still stopped in the same place, after the same eight
+     * scenes, with no target bound. If handle 0 were making a constructor throw
+     * and the title were swallowing it, real handles would have moved where it
+     * stops. They did not, so the deferral is not what holds it up, and the gate
+     * stays as it was rather than carrying the GL risk described above for
+     * nothing. The 16 objects built before the first load defer either way,
+     * since no interface exists that early.
+     */
     M3GInterface m3g = m3gPspRendererReady() ? m3gPspPeekInterface() : NULL;
 
     m3gTrace((m3g != NULL) ? "new" : "defer", what, 0);
