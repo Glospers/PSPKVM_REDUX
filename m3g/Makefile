@@ -135,7 +135,24 @@ DEFINES     := -DM3G_TARGET_SYMBIAN \
 # If this reintroduces a fault inside pspgl's eviction path, the held context
 # is not doing what it should and that is a finding about pspgl, not something
 # to paper over: raise this back to a value large enough to cover edram.
-DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=0
+# Removed now that the heap is fixed.
+#
+# This was set to 0 -- give pspgl all of the video memory -- to keep its buffers
+# out of the C heap, because the C heap was the thing that could not be trusted:
+# it overlapped .data, so anything allocated from it wrote over the program. That
+# is fixed at the source now (heap taken from the top of the partition, see
+# psp/pspkvm.c), so the reason for handing pspgl video memory has gone, and what
+# is left is the cost of doing it: pspgl and PSPKVM's blit both drive the GE, and
+# PSPKVM keeps its display buffers in video memory below the watermark.
+#
+# The symptom that matters -- documented against m3gIface in
+# jsr184/src/native/m3g_object_kni.c:210 as "the MIDlet freezes on its loading
+# screen with even the background animation stopped" -- is what the title does
+# now: the animation runs while it loads, then stops, and no target is ever
+# bound. Reverting to the default reserves video memory for the display and puts
+# pspgl's allocations back on a heap that is finally sound.
+#
+# DEFINES   += -DM3G_PSP_VRAM_RESERVE_KB=0
 
 # Size of the engine's private heap (src/m3g_psp_arena.c).  Left unset the
 # source picks its own default; override on the command line to retune after
