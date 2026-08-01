@@ -712,6 +712,37 @@ Java_javax_microedition_m3g_Object3D_nFind()
  * is why the texture matrix comes for free.
  *--------------------------------------------------------------------*/
 
+/*
+ * An engine handle is a pointer into the arena, so it can only lie inside
+ * user RAM.  A value outside that window is a corrupted Java-side handle
+ * field, and handing it to the engine faults: the first real-PSP run and a
+ * PPSSPP run both died in m3gInvalidateTransformable reading 0x3f800050 --
+ * float 1.0 bits used as an object pointer, plus the field offset.  Until
+ * the source of the corruption is found, reject and report rather than
+ * crash; a zero handle stays silent, that is just a deferred object.
+ */
+static int m3gHandleSane(jint handle, const char *who)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static int logged;
+
+    if (handle == 0) {
+        return 0;
+    }
+    if ((unsigned int) handle >= 0x08400000u
+        && (unsigned int) handle < 0x0C000000u) {
+        return 1;
+    }
+    if (logged < 8 && javacall_diag_log != 0) {
+        char line[96];
+        logged++;
+        sprintf(line, "M3G: insane handle 0x%x in %s\n",
+                (unsigned int) handle, who);
+        javacall_diag_log(line);
+    }
+    return 0;
+}
+
 /* private static native void nSetTransform(int handle, float[] matrix); */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetTransform()
@@ -721,7 +752,7 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
     M3GMatrix matrix;
     M3Gbool have;
 
-    if (handle == 0) {
+    if (!m3gHandleSane(handle, "setTransform")) {
         KNI_ReturnVoid();
     }
 
@@ -746,7 +777,7 @@ Java_javax_microedition_m3g_Transformable_nGetTransform()
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
 
-    if (handle == 0) {
+    if (!m3gHandleSane(handle, "getTransform")) {
         KNI_ReturnVoid();
     }
     m3gGetTransform((M3GTransformable) handle, &matrix);
@@ -788,7 +819,7 @@ Java_javax_microedition_m3g_Transformable_nSetTranslation()
     m3gCall("Transformable.setTranslation", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "setTranslation")) {
         m3gSetTranslation((M3GTransformable) handle,
                           (M3Gfloat) KNI_GetParameterAsFloat(2),
                           (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -803,7 +834,7 @@ Java_javax_microedition_m3g_Transformable_nTranslate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "translate")) {
         m3gTranslate((M3GTransformable) handle,
                      (M3Gfloat) KNI_GetParameterAsFloat(2),
                      (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -818,7 +849,7 @@ Java_javax_microedition_m3g_Transformable_nSetScale()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "setScale")) {
         m3gSetScale((M3GTransformable) handle,
                     (M3Gfloat) KNI_GetParameterAsFloat(2),
                     (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -833,7 +864,7 @@ Java_javax_microedition_m3g_Transformable_nScale()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "scale")) {
         m3gScale((M3GTransformable) handle,
                  (M3Gfloat) KNI_GetParameterAsFloat(2),
                  (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -848,7 +879,7 @@ Java_javax_microedition_m3g_Transformable_nSetOrientation()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "setOrientation")) {
         m3gSetOrientation((M3GTransformable) handle,
                           (M3Gfloat) KNI_GetParameterAsFloat(2),
                           (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -864,7 +895,7 @@ Java_javax_microedition_m3g_Transformable_nPreRotate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "preRotate")) {
         m3gPreRotate((M3GTransformable) handle,
                      (M3Gfloat) KNI_GetParameterAsFloat(2),
                      (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -880,7 +911,7 @@ Java_javax_microedition_m3g_Transformable_nPostRotate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (handle != 0) {
+    if (m3gHandleSane(handle, "postRotate")) {
         m3gPostRotate((M3GTransformable) handle,
                       (M3Gfloat) KNI_GetParameterAsFloat(2),
                       (M3Gfloat) KNI_GetParameterAsFloat(3),

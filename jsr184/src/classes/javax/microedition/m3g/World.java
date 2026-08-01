@@ -28,7 +28,23 @@ public class World extends Group {
         }
         this.activeCamera = camera;
         if (handle != 0) {
-            nSetActiveCamera(handle, camera.handle);
+            if (camera.handle == 0) {
+                /* Deferred camera into a live world: forwarding zero would
+                 * silently leave the file's camera active.  See
+                 * Object3D.linkLater; the field check keeps only the last
+                 * camera set before the replay. */
+                final Camera fCamera = camera;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fCamera.handle != 0 && activeCamera == fCamera) {
+                            nSetActiveCamera(handle, fCamera.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetActiveCamera(handle, camera.handle);
+            }
         }
     }
 
@@ -42,8 +58,21 @@ public class World extends Group {
     public void setBackground(Background background) {
         this.background = background;
         if (handle != 0) {
-            nSetBackground(handle,
-                           (background != null) ? background.handle : 0);
+            if (background != null && background.handle == 0) {
+                final Background fBackground = background;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fBackground.handle != 0
+                                && World.this.background == fBackground) {
+                            nSetBackground(handle, fBackground.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetBackground(handle,
+                               (background != null) ? background.handle : 0);
+            }
         }
     }
 

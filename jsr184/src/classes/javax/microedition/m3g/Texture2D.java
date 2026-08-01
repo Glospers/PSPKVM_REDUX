@@ -59,7 +59,22 @@ public class Texture2D extends Transformable {
         }
         this.image = image;
         if (handle != 0) {
-            nSetImage(handle, image.handle);
+            if (image.handle == 0) {
+                /* Deferred image into a live texture -- forwarding zero
+                 * strips the texture's current image.  See Object3D.linkLater. */
+                final Image2D fImage = image;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fImage.handle != 0
+                                && Texture2D.this.image == fImage) {
+                            nSetImage(handle, fImage.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetImage(handle, image.handle);
+            }
         }
     }
 

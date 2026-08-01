@@ -40,8 +40,28 @@ public class Group extends Node {
         }
         children.addElement(child);
         child.parent = this;
-        if (handle != 0 && child.handle != 0) {
-            nAddChild(handle, child.handle);
+        if (handle != 0) {
+            if (child.handle == 0) {
+                /* Live group, deferred child.  The engine cannot link what
+                 * does not exist yet -- and this group's applyDeferred never
+                 * runs, because the group is already live.  Without the
+                 * replay, everything a title builds during loading and hangs
+                 * under a loaded world simply never enters the engine's
+                 * scene: the world renders its file-native content and none
+                 * of the game's own actors.  See Object3D.linkLater; the
+                 * parent check covers a removeChild before the replay. */
+                final Node fChild = child;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fChild.handle != 0 && fChild.parent == Group.this) {
+                            nAddChild(handle, fChild.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nAddChild(handle, child.handle);
+            }
         }
     }
 

@@ -151,19 +151,22 @@ DEFINES     := -DM3G_TARGET_SYMBIAN \
 # memory, but nothing CPU-visible ever appears there, which was one layer of
 # the black-screen problem.
 #
-# So the reservation leaves pspgl 1048 KB: the pbuffer pair fits with 24 KB to
-# spare, and that spare is deliberately too small for any texture -- a texture
-# that fit in edram later could force pspgl to evict the very colour buffer
-# the frame is being drawn into.  Textures land in main memory instead, which
-# the GE reads perfectly well.
+# The reservation leaves pspgl 1200 KB.  An earlier 1000 left it 1048 -- the
+# 512x512 pbuffer pair (1024) fit with 24 KB to spare, a margin chosen to be
+# too small for any texture.  But it was also too small to survive anything
+# else touching video memory first: pspgl's GL_STATIC_COPY allocation falls
+# back to *system memory* when edram is short (pspgl_buffers.c) and the GE is
+# then pointed at a depth buffer it cannot use, which shows as depth garbage
+# accumulating frame over frame.  176 KB of slack ends that; small textures
+# may now land in edram, and pspgl's eviction machinery exists for exactly
+# that case.
 #
-# 1000 KB reserved requires PSPKVM's own display to fit in it: its two frame
-# buffers were 8888 (1360 KB with depth, leaving only 688 KB) and are switched
-# to 5650 by the same patch that adds the --wrap flags -- lossless, because
-# what is blitted into them is MIDP's RGB565 screen buffer.  The value is
-# clamped up to PSPKVM's real high-water mark either way (src/m3g_psp_vidmem.c),
-# so a future PSPKVM that takes more simply shrinks pspgl's share.
-DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=1000
+# 848 KB reserved still covers PSPKVM's own display: its two frame buffers
+# plus depth are 5650 since the patch that adds the --wrap flags (816 KB
+# high-water), and the value is clamped up to that mark either way
+# (src/m3g_psp_vidmem.c), so a future PSPKVM that takes more simply shrinks
+# pspgl's share.
+DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=848
 
 # Reserve only the edram PSPKVM actually holds, not all of it.
 #
@@ -209,6 +212,12 @@ DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=1000
 # Size of the engine's private heap (src/m3g_psp_arena.c).  Left unset the
 # source picks its own default; override on the command line to retune after
 # reading the peak= figure the KNI layer logs to ms0:/pspkvm_vm.log.
+# 768: the source default of 384 refused one block during Deep 3D's race
+# loads (fail=1 with ~106K free means a single allocation past 106K -- the
+# track mesh), and the race rendered as fog over nothing.  Doubling it costs
+# 384K of BSS, which the from-top C heap layout absorbs.
+DEFINES     += -DM3G_PSP_ARENA_KB=768
+
 ifneq ($(M3G_PSP_ARENA_KB),)
 DEFINES     += -DM3G_PSP_ARENA_KB=$(M3G_PSP_ARENA_KB)
 endif

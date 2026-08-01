@@ -656,6 +656,53 @@ void __wrap___pspgl_ge_vertex_fmt(void *ctx,
 int m3gPspDrawCalls;
 int m3gPspDrawVertices;
 
+/*
+ * TEMPORARY -- the mid-run draw list.
+ *
+ * The first-eight log below photographs boot, when the scene is still
+ * sparse; the missing-mesh class (station, fish -- the meshes that arrive
+ * by animation) only shows once the scene has filled in.  Frames are
+ * inferred from the KNI layer's counter reset: the first draw after a
+ * reset sees the counter at 1.  The KNI resets at its every-64-frame
+ * report, so one tick here is a 64-frame block, not a frame -- the first
+ * cut of this window waited for block 240 and never fired.  Two windows,
+ * early and late, so a single run photographs the scene both sparse and
+ * full; whether the missing meshes' draws are absent (engine skips them)
+ * or present with wrong state decides where to dig next.
+ */
+static void m3gPspDrawWindow(int count)
+{
+    extern void *__pspgl_curctx;
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static int frameNo;
+    static int budgetEarly = 70;
+    static int budgetLate  = 70;
+    int *budget;
+
+    if (m3gPspDrawCalls == 1) {
+        frameNo++;
+    }
+    if (javacall_diag_log == 0 || __pspgl_curctx == 0) {
+        return;
+    }
+    /* Separate budgets: one block spans 64 frames of draws, so a shared
+     * budget would be gone long before the late window opened. */
+    if (frameNo == 4)      { budget = &budgetEarly; }
+    else if (frameNo == 9) { budget = &budgetLate; }
+    else                   { return; }
+
+    if (*budget > 0) {
+        const unsigned int *reg =
+            (const unsigned int *) ((char *) __pspgl_curctx + 8);
+        char line[120];
+        (*budget)--;
+        sprintf(line, "M3G: dw f=%d i=%d n=%d vt=%06x tex=%d tbp=%06x\n",
+                frameNo, m3gPspDrawCalls, count,
+                reg[0x12] & 0xFFFFFF, reg[0x1E] & 1, reg[0xA0] & 0xFFFFFF);
+        javacall_diag_log(line);
+    }
+}
+
 extern void __real_glDrawElements (GLenum mode, GLsizei count, GLenum type,
                                    const void *indices);
 extern void __real_glDrawArrays (GLenum mode, GLint first, GLsizei count);
@@ -666,6 +713,7 @@ void __wrap_glDrawElements (GLenum mode, GLsizei count, GLenum type,
     m3gPspDrawCalls++;
     m3gPspDrawVertices += (int) count;
     __real_glDrawElements(mode, count, type, indices);
+    m3gPspDrawWindow((int) count);
 
     /* TEMPORARY -- what state did the first engine draws actually run
      * under?  The vertex-type word says whether a colour array was in the
@@ -700,6 +748,7 @@ void __wrap_glDrawArrays (GLenum mode, GLint first, GLsizei count)
     m3gPspDrawCalls++;
     m3gPspDrawVertices += (int) count;
     __real_glDrawArrays(mode, first, count);
+    m3gPspDrawWindow((int) count);
 }
 
 /*----------------------------------------------------------------------

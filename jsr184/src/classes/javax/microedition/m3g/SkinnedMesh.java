@@ -71,6 +71,24 @@ public class SkinnedMesh extends Mesh {
         if (handle != 0 && bone.handle != 0) {
             nAddTransform(handle, bone.handle, weight, firstVertex, numVertices);
         }
+        else {
+            /* Either side may not exist yet, and there is no Java-side
+             * record for applyDeferred to replay -- without this the call
+             * vanished entirely.  linkLater runs after every deferred
+             * object has been created, so both handles exist by then. */
+            final Node fBone = bone;
+            final int fWeight = weight;
+            final int fFirst = firstVertex;
+            final int fCount = numVertices;
+            Object3D.linkLater(new Runnable() {
+                public void run() {
+                    if (handle != 0 && fBone.handle != 0) {
+                        nAddTransform(handle, fBone.handle,
+                                      fWeight, fFirst, fCount);
+                    }
+                }
+            });
+        }
     }
 
     public void getBoneTransform(Node bone, Transform transform) {

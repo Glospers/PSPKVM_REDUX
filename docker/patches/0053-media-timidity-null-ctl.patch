@@ -1,0 +1,182 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index 39c1b642..cb53458f 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -165,6 +165,111 @@ javacall_bool javacall_media_supports_mixing() {
+  * @retval JOK      success
+  * @retval JFAIL    fail
+  */
++/* ---- $gp corrective trampolines for the prebuilt audio libraries ------
++ *
++ * SDL and SDL_mixer are the only code in this link built with small data:
++ * they address their globals relative to $gp.  Everything of PSPKVM proper
++ * is -G0, which left the VM free to run its Java green threads with $gp
++ * holding interpreter state -- measured on a Java thread as 0x090750c0
++ * against a module gp of 0x08f15b10.  Every absolute access in the process
++ * works; every gp-relative access inside the audio libraries reads and
++ * writes heap garbage.  That was the entire "Timidity null control mode"
++ * crash family: ctl is statically initialised and never zeroed -- the
++ * library was just reading it from the wrong base.
++ *
++ * The cure: every entry point our media code calls runs behind a wrapper
++ * (-Wl,--wrap, psp/Makefile) that installs the module's real $gp, taken
++ * from the linker's own _gp symbol so relocation keeps it exact, and
++ * restores the caller's on the way out.  Threads the libraries create
++ * themselves get a correct $gp from the OS, and callbacks into our -G0
++ * code are indifferent to $gp, so the entry points are the complete set.
++ *
++ * Every wrapped function takes at most four register arguments and returns
++ * int or a pointer, so one uniform int-quad shape forwards them all under
++ * the o32 ABI.
++ */
++
++extern char _gp[];              /* the linker's module gp, relocated */
++
++#define PSPKVM_GP_WRAP(name)                                            \
++    extern int __real_##name(int, int, int, int);                       \
++    int __wrap_##name(int a, int b, int c, int d)                       \
++    {                                                                   \
++        unsigned int pspkvm_saved_gp, pspkvm_ret;                       \
++        asm volatile("move %0,$gp" : "=r" (pspkvm_saved_gp) : :         \
++                     "memory");                                         \
++        asm volatile("move $gp,%0" : : "r" ((unsigned int) (size_t) _gp)\
++                     : "memory");                                       \
++        pspkvm_ret = (unsigned int) __real_##name(a, b, c, d);          \
++        asm volatile("move $gp,%0" : : "r" (pspkvm_saved_gp) :          \
++                     "memory");                                         \
++        return (int) pspkvm_ret;                                        \
++    }
++
++PSPKVM_GP_WRAP(SDL_Init)
++PSPKVM_GP_WRAP(SDL_Quit)
++PSPKVM_GP_WRAP(SDL_GetError)
++PSPKVM_GP_WRAP(SDL_RWFromMem)
++PSPKVM_GP_WRAP(SDL_RWFromFile)
++PSPKVM_GP_WRAP(Mix_AllocateChannels)
++PSPKVM_GP_WRAP(Mix_ChannelFinished)
++PSPKVM_GP_WRAP(Mix_CloseAudio)
++PSPKVM_GP_WRAP(Mix_FreeChunk)
++PSPKVM_GP_WRAP(Mix_FreeMusic)
++PSPKVM_GP_WRAP(Mix_HaltChannel)
++PSPKVM_GP_WRAP(Mix_HookMusicFinished)
++PSPKVM_GP_WRAP(Mix_LoadMUS)
++PSPKVM_GP_WRAP(Mix_LoadMUS_RW)
++PSPKVM_GP_WRAP(Mix_LoadWAV_RW)
++PSPKVM_GP_WRAP(Mix_OpenAudio)
++PSPKVM_GP_WRAP(Mix_Pause)
++PSPKVM_GP_WRAP(Mix_PauseMusic)
++PSPKVM_GP_WRAP(Mix_PlayChannelTimed)
++PSPKVM_GP_WRAP(Mix_PlayMusic)
++PSPKVM_GP_WRAP(Mix_ResumeMusic)
++PSPKVM_GP_WRAP(Mix_QuerySpec)
++
++/* Also wrapped: Timidity's own file opener.  With correct $gp everywhere
++   this is belt and braces, but it keeps the ctl assertion (harmless if the
++   library's static initialiser already did it) and one budgeted log line
++   that on real hardware will say what that platform's thread $gp looks
++   like before anyone trusts it. */
++void *__real_open_file(char *name, int decompress, int noise_mode);
++void *__wrap_open_file(char *name, int decompress, int noise_mode)
++{
++    extern void *ctl;
++    extern char sdl_control_mode[];
++
++    {
++        extern void javacall_diag_log(const char *s) __attribute__((weak));
++        static int logged;
++        unsigned int gpv;
++        asm volatile("move %0,$gp" : "=r" (gpv));
++        if (logged < 4 && javacall_diag_log != 0) {
++            char line[128];
++            logged++;
++            sprintf(line, "media: open_file gp=%08x want=%08x ctl=%p\n",
++                    gpv, (unsigned int) (size_t) _gp, ctl);
++            javacall_diag_log(line);
++        }
++    }
++
++    if (ctl == NULL) {
++        ctl = (void *) sdl_control_mode;
++    }
++
++    {
++        void *ret;
++        unsigned int savedgp;
++        asm volatile("move %0,$gp" : "=r" (savedgp) : : "memory");
++        asm volatile("move $gp,%0" : : "r" ((unsigned int) (size_t) _gp)
++                     : "memory");
++        ret = __real_open_file(name, decompress, noise_mode);
++        asm volatile("move $gp,%0" : : "r" (savedgp) : "memory");
++        return ret;
++    }
++}
++
+ javacall_result javacall_media_initialize(void) {
+     javacall_print("javacall_media_initialize\n");
+     if (_javacall_media_initilized == 1) {
+@@ -208,20 +313,63 @@ javacall_result javacall_media_initialize(void) {
+         }
+     }
+ 
++    /* The null control-mode fault, located: Timidity_Init runs
++       read_config_file before anything assigns the global `ctl`, and the
++       moment the config path produces a diagnostic, open_file fetches the
++       reporter through ctl->cmsg -- a read of address 0x24.  The library is
++       prebuilt but both symbols are visible data: point ctl at the SDL
++       control mode it would have been given anyway, and a config problem
++       becomes a printed message and a clean no-MIDI init instead of taking
++       the VM down.  The path log alongside says which file Timidity was
++       actually told to read (0040 builds it from getcwd).
++
++       The assignment below alone proved insufficient: the crash reproduced
++       with it verified present in the disassembly, so Timidity_Init clears
++       ctl again somewhere between here and read_config_file.  Hence the
++       open_file wrap after this function -- inside the window. */
++    {
++        extern void *ctl;
++        extern char sdl_control_mode[];
++        char *cfg = getenv("TIMIDITY_CFG");
++        javacall_printf("media: TIMIDITY_CFG=%s\n", cfg ? cfg : "(unset)");
++        if (ctl == NULL) {
++            ctl = (void *) sdl_control_mode;
++        }
++    }
++
+     max_patch_memory = 4*1024*1024;
+-    
++
+     if(SDL_Init(SDL_INIT_AUDIO)==-1) {
+         javacall_printf("SDL_Init: %s\n", SDL_GetError());
+         _javacall_media_initilized = -1;
+         return JAVACALL_FAIL;
+     }
+ 
+-    if(Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 1024)==-1) {
++    /* 44100, the PSP's native output rate, instead of SDL_mixer's 22050
++       default.  Music decoded fine but a pitch shift with the tempo intact
++       pointed at the synthesis rate and the playback rate disagreeing
++       somewhere between Timidity, SDL and the PSP audio driver; asking for
++       the one rate the hardware actually runs at removes every conversion
++       step.  The QuerySpec line records what was really negotiated. */
++    if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024)==-1) {
+         javacall_printf("Mix_OpenAudio error: %s\n", SDL_GetError());
+         _javacall_media_initilized = -1;
+         return JAVACALL_FAIL;
+     }
+ 
++    {
++        extern void javacall_diag_log(const char *s) __attribute__((weak));
++        int freq = 0, channels = 0;
++        Uint16 format = 0;
++        Mix_QuerySpec(&freq, &format, &channels);
++        if (javacall_diag_log != 0) {
++            char line[96];
++            sprintf(line, "media: spec freq=%d format=0x%x channels=%d\n",
++                    freq, (unsigned int) format, channels);
++            javacall_diag_log(line);
++        }
++    }
++
+     music_handle_occupied = 0;
+     Mix_HookMusicFinished(musicFinished);
+ 

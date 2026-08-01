@@ -52,6 +52,7 @@
 #include <EGL/egl.h>
 
 #include <stddef.h>     /* NULL -- EGL/egl.h does not pull in a libc header */
+#include <stdio.h>      /* sprintf -- the one-shot vidmem log below */
 
 /* Declared here rather than by including M3G/m3g_psp.h: this translation unit
  * must see exactly one set of EGL typedefs (see the note above), and pulling in
@@ -290,6 +291,7 @@ EGLSurface __wrap_eglCreatePbufferSurface (EGLDisplay dpy, EGLConfig config,
     /* Large enough for every list m3gcore or this file builds; the longest
      * is WIDTH, HEIGHT, LARGEST_PBUFFER, NONE = 7 entries. */
     EGLint rounded[16];
+    EGLint w = 0, h = 0;
     int n;
 
     if (attrib_list == 0) {
@@ -301,11 +303,39 @@ EGLSurface __wrap_eglCreatePbufferSurface (EGLDisplay dpy, EGLConfig config,
         rounded[n + 1] = attrib_list[n + 1];
         if (attrib_list[n] == EGL_WIDTH || attrib_list[n] == EGL_HEIGHT) {
             rounded[n + 1] = m3gPspCeilPow2(attrib_list[n + 1]);
+            if (attrib_list[n] == EGL_WIDTH) { w = rounded[n + 1]; }
+            else                             { h = rounded[n + 1]; }
         }
     }
     rounded[n] = EGL_NONE;
 
-    return __real_eglCreatePbufferSurface(dpy, config, rounded);
+    {
+        /* TEMPORARY -- where did the surface's buffers land?  pspgl's
+         * GL_STATIC_COPY allocation falls back to system memory when video
+         * memory is short (pspgl_buffers.c), the depth pointer is then
+         * programmed into the GE untranslated (pspgl_vidmem.c), and nothing
+         * reports any of it.  A full 512x512 colour+depth pair takes 1024K,
+         * and the drop of ~avail across this call is the verdict: ~1024K and
+         * both landed in edram; ~512K and the depth buffer is in system RAM,
+         * which shows as depth garbage that accumulates frame over frame. */
+        extern void javacall_diag_log(const char *s) __attribute__((weak));
+        extern unsigned long __pspgl_vidmem_avail(void);
+        static int logged;
+        EGLSurface s;
+        unsigned long before = __pspgl_vidmem_avail();
+
+        s = __real_eglCreatePbufferSurface(dpy, config, rounded);
+
+        if (logged < 4 && javacall_diag_log != 0) {
+            char line[160];
+            logged++;
+            sprintf(line, "M3G: pbuffer %ldx%ld cfg=0x%lx vidmem %luK -> %luK\n",
+                    (long) w, (long) h, (unsigned long) (size_t) config,
+                    before / 1024u, __pspgl_vidmem_avail() / 1024u);
+            javacall_diag_log(line);
+        }
+        return s;
+    }
 }
 
 /*----------------------------------------------------------------------
