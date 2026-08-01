@@ -38,16 +38,22 @@ extern "C" {
 #endif
 
 /*----------------------------------------------------------------------
- * Version identification
+ * Version identification -- DELIBERATELY ABSENT.
  *
- * inc/m3g_defs.h:489 tests for these to set M3G_GL_ES_1_1, which enables the
- * 1.1-only code paths (vertex buffer objects excepted -- m3gcore does not use
- * them).  Defining GL_VERSION_ES_CM_1_1 is the standard way for a GL ES 1.1
- * header to announce itself.
+ * inc/m3g_defs.h:489 tests for GL_VERSION_ES_CM_1_1 / GL_OES_VERSION_1_1 to
+ * set M3G_GL_ES_1_1, and the ONLY thing that flag changes in this engine is
+ * the mipmap strategy (all four uses are in src/m3g_image.inl): with it, the
+ * engine asks the driver to generate mipmaps -- glTexParameteri(
+ * GL_GENERATE_MIPMAP) at m3g_image.inl:187 -- and without it, it generates
+ * them itself and uploads every level with plain glTexImage2D.
+ *
+ * pspgl has no GL_GENERATE_MIPMAP: the call raises GL_INVALID_ENUM, the
+ * commit's error check reads it, and the texture is silently invalidated --
+ * which disabled texturing for every mipmapped texture in every scene (the
+ * skybox and the whole station backdrop of Deep 3D, while their
+ * non-mipmapped neighbours drew textured).  Announcing ES 1.0 semantics
+ * routes the engine onto its software path, which pspgl handles fully.
  *--------------------------------------------------------------------*/
-
-#define GL_VERSION_ES_CM_1_1    1
-#define GL_OES_VERSION_1_1      1
 
 /*----------------------------------------------------------------------
  * Scalar types

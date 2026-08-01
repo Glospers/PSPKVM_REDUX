@@ -41,8 +41,19 @@ public class Appearance extends Object3D {
     public void setCompositingMode(CompositingMode compositingMode) {
         this.compositingMode = compositingMode;
         if (handle != 0) {
-            nSetCompositingMode(handle,
-                (compositingMode != null) ? compositingMode.handle : 0);
+            if (compositingMode != null && compositingMode.handle == 0) {
+                final CompositingMode fValue = compositingMode;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fValue.handle != 0) {
+                            nSetCompositingMode(handle, fValue.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetCompositingMode(handle, (compositingMode != null) ? compositingMode.handle : 0);
+            }
         }
     }
 
@@ -56,7 +67,19 @@ public class Appearance extends Object3D {
     public void setFog(Fog fog) {
         this.fog = fog;
         if (handle != 0) {
-            nSetFog(handle, (fog != null) ? fog.handle : 0);
+            if (fog != null && fog.handle == 0) {
+                final Fog fValue = fog;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fValue.handle != 0) {
+                            nSetFog(handle, fValue.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetFog(handle, (fog != null) ? fog.handle : 0);
+            }
         }
     }
 
@@ -70,8 +93,20 @@ public class Appearance extends Object3D {
     public void setPolygonMode(PolygonMode polygonMode) {
         this.polygonMode = polygonMode;
         if (handle != 0) {
-            nSetPolygonMode(handle,
-                            (polygonMode != null) ? polygonMode.handle : 0);
+            if (polygonMode != null && polygonMode.handle == 0) {
+                final PolygonMode fValue = polygonMode;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fValue.handle != 0) {
+                            nSetPolygonMode(handle, fValue.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetPolygonMode(handle,
+                                (polygonMode != null) ? polygonMode.handle : 0);
+            }
         }
     }
 
@@ -85,7 +120,19 @@ public class Appearance extends Object3D {
     public void setMaterial(Material material) {
         this.material = material;
         if (handle != 0) {
-            nSetMaterial(handle, (material != null) ? material.handle : 0);
+            if (material != null && material.handle == 0) {
+                final Material fValue = material;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fValue.handle != 0) {
+                            nSetMaterial(handle, fValue.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetMaterial(handle, (material != null) ? material.handle : 0);
+            }
         }
     }
 
@@ -102,7 +149,24 @@ public class Appearance extends Object3D {
         }
         textures[index] = texture;
         if (handle != 0) {
-            nSetTexture(handle, index, (texture != null) ? texture.handle : 0);
+            if (texture != null && texture.handle == 0) {
+                /* The value exists only in Java so far; forwarding now would
+                 * hand the engine a zero handle, which strips whatever the
+                 * file put here. Replay once the renderer has built it. */
+                final int fIndex = index;
+                final Texture2D fTexture = texture;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fTexture.handle != 0) {
+                            nSetTexture(handle, fIndex, fTexture.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetTexture(handle, index,
+                            (texture != null) ? texture.handle : 0);
+            }
         }
     }
 

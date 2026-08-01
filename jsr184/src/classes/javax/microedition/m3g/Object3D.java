@@ -148,26 +148,51 @@ public abstract class Object3D {
     }
 
     /**
+     * Links recorded while a live engine object was handed a deferred one.
+     *
+     * A MIDlet may set a not-yet-created object into one that came out of
+     * Loader -- appearance.setTexture(0, new Texture2D(...)) during startup
+     * is the canonical case.  The receiving object is live, so the setter
+     * forwards immediately -- but the value's handle is still 0, and the
+     * engine reads a zero handle as "remove": the file's own texture was
+     * being stripped off every re-dressed appearance and never replaced.
+     * These runnables replay exactly those forwards after the deferred pass
+     * has given every object its real handle.
+     */
+    private static java.util.Vector pendingLinks = new java.util.Vector();
+
+    static void linkLater(Runnable link) {
+        pendingLinks.addElement(link);
+    }
+
+    /**
      * Builds everything queued while the renderer was down.
      *
      * Called from the only two places that can bring the renderer up:
      * Loader.decode and Graphics3D.bindTarget.
      */
     static void flushDeferred() {
-        if (deferred.size() == 0) {
-            return;
-        }
-        java.util.Vector pending = deferred;
-        deferred = new java.util.Vector();
+        if (deferred.size() != 0) {
+            java.util.Vector pending = deferred;
+            deferred = new java.util.Vector();
 
-        int n = pending.size();
-        for (int i = 0; i < n; i++) {
-            ((Object3D) pending.elementAt(i)).createDeferred();
+            int n = pending.size();
+            for (int i = 0; i < n; i++) {
+                ((Object3D) pending.elementAt(i)).createDeferred();
+            }
+            for (int i = 0; i < n; i++) {
+                Object3D o = (Object3D) pending.elementAt(i);
+                if (o.handle != 0) {
+                    o.applyDeferred();
+                }
+            }
         }
-        for (int i = 0; i < n; i++) {
-            Object3D o = (Object3D) pending.elementAt(i);
-            if (o.handle != 0) {
-                o.applyDeferred();
+
+        if (pendingLinks.size() != 0) {
+            java.util.Vector links = pendingLinks;
+            pendingLinks = new java.util.Vector();
+            for (int i = 0; i < links.size(); i++) {
+                ((Runnable) links.elementAt(i)).run();
             }
         }
     }

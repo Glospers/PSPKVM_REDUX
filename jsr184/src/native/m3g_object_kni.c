@@ -115,6 +115,56 @@ static void m3gTraceImpl(const char *tag, const char *what, jint value)
 
 #endif /* M3G_TRACE */
 
+/*
+ * CALL TRACE -- OFF unless built with -DM3G_CALL_TRACE.
+ *
+ * The trace above reports objects being *made*.  This one reports the scene
+ * graph being *read*, which is what a title does with a scene once it has one:
+ * descend it with getChild, ask each mesh for its appearance, hang a texture on
+ * it.  None of that left any mark, so a title that stopped part-way through
+ * that walk looked exactly like one that had finished it.
+ *
+ * It is worth keeping because it is what found the fault it was written for:
+ * the trace ended on the entry to Appearance.setTexture, and the call the
+ * MIDlet makes one bytecode later never arrived, which placed the failure
+ * between two adjacent instructions.  Turn it on when a title stops somewhere
+ * and nothing says why; the last line is where it stopped.
+ *
+ * Off by default for the same reason as the trace above: every line is an
+ * open/write/close on the memory stick, and these fire per node, per frame.
+ * Budgeted even when on.  The sequence number counts whether or not the line
+ * is written, so a truncated trace says so rather than pretending it ended.
+ */
+#if defined(M3G_CALL_TRACE)
+
+#define M3G_CALL_BUDGET 4000
+static int s_callsLeft = M3G_CALL_BUDGET;
+static int s_callSeq;
+
+static void m3gCallImpl(const char *what, jint handle)
+{
+    char line[96];
+
+    ++s_callSeq;
+    if (javacall_diag_log == 0 || s_callsLeft <= 0) {
+        return;
+    }
+    if (--s_callsLeft == 0) {
+        javacall_diag_log("M3G: call trace budget exhausted\n");
+        return;
+    }
+    sprintf(line, "M3G: #%d %s %d\n", s_callSeq, what, (int) handle);
+    javacall_diag_log(line);
+}
+
+#define m3gCall(what, handle) m3gCallImpl((what), (handle))
+
+#else
+
+#define m3gCall(what, handle) ((void) 0)
+
+#endif /* M3G_CALL_TRACE */
+
 static int s_created;
 
 /*
@@ -440,6 +490,7 @@ Java_javax_microedition_m3g_Object3D_nSetUserID()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nGetUserID()
 {
+    m3gCall("Object3D.getUserID", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt((handle != 0) ? m3gGetUserID((M3GObject) handle) : 0);
@@ -465,6 +516,7 @@ Java_javax_microedition_m3g_Object3D_nClassID()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nAnimate()
 {
+    m3gCall("Object3D.animate", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
 #if defined(M3G_NO_ANIMATE)
@@ -545,6 +597,7 @@ static M3Gint m3gDuplicateSlots(M3GObject object)
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nDuplicate()
 {
+    m3gCall("Object3D.duplicate", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
     M3GObject *pairs;
     M3Gint slots, i;
@@ -584,6 +637,7 @@ Java_javax_microedition_m3g_Object3D_nDuplicate()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nGetAnimationTrackCount()
 {
+    m3gCall("Object3D.getAnimationTrackCount", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt((handle != 0)
@@ -596,6 +650,7 @@ Java_javax_microedition_m3g_Object3D_nGetAnimationTrackCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Object3D_nGetAnimationTrack()
 {
+    m3gCall("Object3D.getAnimationTrack", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle == 0) {
@@ -661,6 +716,7 @@ Java_javax_microedition_m3g_Object3D_nFind()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetTransform()
 {
+    m3gCall("Transformable.setTransform", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
     M3Gbool have;
@@ -686,6 +742,7 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nGetTransform()
 {
+    m3gCall("Transformable.getTransform", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
 
@@ -728,6 +785,7 @@ Java_javax_microedition_m3g_Transformable_nGetCompositeTransform()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetTranslation()
 {
+    m3gCall("Transformable.setTranslation", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -970,6 +1028,7 @@ Java_javax_microedition_m3g_Node_nSetScope()
 KNIEXPORT KNI_RETURNTYPE_BOOLEAN
 Java_javax_microedition_m3g_Node_nGetTransformTo()
 {
+    m3gCall("Node.getTransformTo", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
     jint target = KNI_GetParameterAsInt(2);
     M3GMatrix matrix;
@@ -1046,6 +1105,7 @@ Java_javax_microedition_m3g_Group_nAddChild()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Group_nRemoveChild()
 {
+    m3gCall("Group.removeChild", KNI_GetParameterAsInt(1));
     jint group = KNI_GetParameterAsInt(1);
     jint child = KNI_GetParameterAsInt(2);
 
@@ -1066,6 +1126,7 @@ Java_javax_microedition_m3g_Group_nRemoveChild()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Group_nGetChildCount()
 {
+    m3gCall("Group.getChildCount", KNI_GetParameterAsInt(1));
     jint group = KNI_GetParameterAsInt(1);
 
     KNI_ReturnInt((group != 0) ? m3gGetChildCount((M3GGroup) group) : 0);
@@ -1074,6 +1135,7 @@ Java_javax_microedition_m3g_Group_nGetChildCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Group_nGetChild()
 {
+    m3gCall("Group.getChild", KNI_GetParameterAsInt(1));
     jint group = KNI_GetParameterAsInt(1);
 
     if (group == 0) {
@@ -1768,6 +1830,7 @@ Java_javax_microedition_m3g_Appearance_nSetFog()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Appearance_nSetTexture()
 {
+    m3gCall("Appearance.setTexture", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2317,6 +2380,7 @@ Java_javax_microedition_m3g_Mesh_nCreate()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Mesh_nSetAppearance()
 {
+    m3gCall("Mesh.setAppearance", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2383,6 +2447,16 @@ Java_javax_microedition_m3g_SkinnedMesh_nAddTransform()
     KNI_ReturnVoid();
 }
 
+/* private static native int nGetSkeleton(int handle); */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_SkinnedMesh_nGetSkeleton()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    KNI_ReturnInt((handle != 0)
+                  ? (jint) m3gGetSkeleton((M3GSkinnedMesh) handle) : 0);
+}
+
 /*
  * private static native int nCreate(int vertices, int[] targets,
  *                                   int[] submeshes, int[] appearances);
@@ -2423,11 +2497,41 @@ Java_javax_microedition_m3g_MorphingMesh_nCreate()
     KNI_ReturnInt(result);
 }
 
-/* private static native void nSetWeights(int handle, float[] weights); */
+/* private static native int nGetMorphTargetCount(int handle); */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_MorphingMesh_nGetMorphTargetCount()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    KNI_ReturnInt((handle != 0)
+                  ? m3gGetMorphTargetCount((M3GMorphingMesh) handle) : 0);
+}
+
+/* private static native int nGetMorphTarget(int handle, int index); */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_MorphingMesh_nGetMorphTarget()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle == 0) {
+        KNI_ReturnInt(0);
+    }
+    KNI_ReturnInt((jint) m3gGetMorphTarget((M3GMorphingMesh) handle,
+                                           KNI_GetParameterAsInt(2)));
+}
+
+/*
+ * private static native void nSetWeights(int handle, float[] weights, int count);
+ *
+ * The count is the engine's target count, not the array length: the
+ * specification lets a MIDlet hand over a longer array than there are targets,
+ * and m3gSetWeights reads exactly as many as it is told to.
+ */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_MorphingMesh_nSetWeights()
 {
     jint handle = KNI_GetParameterAsInt(1);
+    jint count  = KNI_GetParameterAsInt(3);
 
     if (handle == 0) {
         KNI_ReturnVoid();
@@ -2436,12 +2540,38 @@ Java_javax_microedition_m3g_MorphingMesh_nSetWeights()
     KNI_StartHandles(1);
     KNI_DeclareHandle(weights);
     KNI_GetParameterAsObject(2, weights);
-    if (!KNI_IsNullHandle(weights)) {
+    if (!KNI_IsNullHandle(weights) && count > 0
+        && KNI_GetArrayLength(weights) >= count) {
         M3Gfloat *w = (M3Gfloat *) SNI_GetRawArrayPointer(weights);
         if (w != NULL) {
-            m3gSetWeights((M3GMorphingMesh) handle, w,
-                          (M3Gint) KNI_GetArrayLength(weights));
+            m3gSetWeights((M3GMorphingMesh) handle, w, (M3Gint) count);
             m3gCheckScreen("after MorphingMesh.setWeights");
+        }
+    }
+    KNI_EndHandles();
+
+    KNI_ReturnVoid();
+}
+
+/* private static native void nGetWeights(int handle, float[] weights, int count); */
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_MorphingMesh_nGetWeights()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+    jint count  = KNI_GetParameterAsInt(3);
+
+    if (handle == 0) {
+        KNI_ReturnVoid();
+    }
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(weights);
+    KNI_GetParameterAsObject(2, weights);
+    if (!KNI_IsNullHandle(weights) && count > 0
+        && KNI_GetArrayLength(weights) >= count) {
+        M3Gfloat *w = (M3Gfloat *) SNI_GetRawArrayPointer(weights);
+        if (w != NULL) {
+            m3gGetWeights((M3GMorphingMesh) handle, w, (M3Gint) count);
         }
     }
     KNI_EndHandles();
@@ -2489,6 +2619,7 @@ Java_javax_microedition_m3g_Sprite3D_nSetImage()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Sprite3D_nSetAppearance()
 {
+    m3gCall("Sprite3D.setAppearance", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
     if (handle != 0) {
@@ -2558,6 +2689,7 @@ Java_javax_microedition_m3g_Node_nGetParent()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetSubmeshCount()
 {
+    m3gCall("Mesh.getSubmeshCount", KNI_GetParameterAsInt(1));
     jint mesh = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((mesh != 0) ? m3gGetSubmeshCount((M3GMesh) mesh) : 0);
 }
@@ -2565,6 +2697,7 @@ Java_javax_microedition_m3g_Mesh_nGetSubmeshCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetVertexBuffer()
 {
+    m3gCall("Mesh.getVertexBuffer", KNI_GetParameterAsInt(1));
     jint mesh = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((mesh != 0) ? (jint) m3gGetVertexBuffer((M3GMesh) mesh) : 0);
 }
@@ -2583,6 +2716,7 @@ Java_javax_microedition_m3g_Mesh_nGetIndexBuffer()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Mesh_nGetAppearance()
 {
+    m3gCall("Mesh.getAppearance", KNI_GetParameterAsInt(1));
     jint mesh = KNI_GetParameterAsInt(1);
     if (mesh == 0) {
         KNI_ReturnInt(0);
@@ -2596,6 +2730,7 @@ Java_javax_microedition_m3g_Mesh_nGetAppearance()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetMaterial()
 {
+    m3gCall("Appearance.getMaterial", KNI_GetParameterAsInt(1));
     jint a = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((a != 0) ? (jint) m3gGetMaterial((M3GAppearance) a) : 0);
 }
@@ -2624,6 +2759,7 @@ Java_javax_microedition_m3g_Appearance_nGetFog()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Appearance_nGetTexture()
 {
+    m3gCall("Appearance.getTexture", KNI_GetParameterAsInt(1));
     jint a = KNI_GetParameterAsInt(1);
     if (a == 0) {
         KNI_ReturnInt(0);
@@ -2644,6 +2780,7 @@ Java_javax_microedition_m3g_Appearance_nGetLayer()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Texture2D_nGetImage()
 {
+    m3gCall("Texture2D.getImage", KNI_GetParameterAsInt(1));
     jint t = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((t != 0) ? (jint) m3gGetTextureImage((M3GTexture) t) : 0);
 }
@@ -2653,6 +2790,7 @@ Java_javax_microedition_m3g_Texture2D_nGetImage()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Image2D_nGetWidth()
 {
+    m3gCall("Image2D.getWidth", KNI_GetParameterAsInt(1));
     jint img = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((img != 0) ? m3gGetWidth((M3GImage) img) : 0);
 }
@@ -2676,6 +2814,7 @@ Java_javax_microedition_m3g_Image2D_nGetFormat()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Material_nGetColor()
 {
+    m3gCall("Material.getColor", KNI_GetParameterAsInt(1));
     jint m = KNI_GetParameterAsInt(1);
     if (m == 0) {
         KNI_ReturnInt(0);
@@ -2698,6 +2837,7 @@ Java_javax_microedition_m3g_VertexBuffer_nGetVertexCount()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_AnimationTrack_nGetSequence()
 {
+    m3gCall("AnimationTrack.getKeyframeSequence", KNI_GetParameterAsInt(1));
     jint t = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((t != 0) ? (jint) m3gGetSequence((M3GAnimationTrack) t) : 0);
 }
@@ -2712,6 +2852,7 @@ Java_javax_microedition_m3g_AnimationTrack_nGetTargetProperty()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_KeyframeSequence_nGetDuration()
 {
+    m3gCall("KeyframeSequence.getDuration", KNI_GetParameterAsInt(1));
     jint k = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((k != 0) ? m3gGetDuration((M3GKeyframeSequence) k) : 0);
 }

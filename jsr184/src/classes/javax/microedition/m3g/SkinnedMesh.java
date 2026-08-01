@@ -51,7 +51,12 @@ public class SkinnedMesh extends Mesh {
         this.skeleton = skeleton;
     }
 
+    /* As in Mesh: a SkinnedMesh from Loader has no Java-side skeleton, so read
+     * the one the engine holds. */
     public Group getSkeleton() {
+        if (handle != 0) {
+            return (Group) Object3D.wrap(nGetSkeleton(handle));
+        }
         return skeleton;
     }
 
@@ -83,6 +88,7 @@ public class SkinnedMesh extends Mesh {
 
     private static native int nCreate(int vertices, int[] submeshes,
                                       int[] appearances, int skeleton);
+    private static native int nGetSkeleton(int handle);
     private static native void nAddTransform(int handle, int bone, int weight,
                                              int firstVertex, int numVertices);
 }

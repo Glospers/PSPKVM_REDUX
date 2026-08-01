@@ -21,6 +21,11 @@
  *    therefore hit refcount 0 and be freed along with the loader.  So we take
  *    our own reference on each root *before* destroying it.
  *
+ * 3. The loader is destroyed by the caller, not here.  A file's user
+ *    parameters live in the loader (:2980-3050) and are freed with it, so a
+ *    load that tore it down on the way out could never hand them back.  See
+ *    M3GPspLoadResult in inc/M3G/m3g_psp.h.
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
  * published by the Free Software Foundation.
@@ -112,9 +117,19 @@ static M3Gint m3gPspMapError(M3Genum error)
     }
 }
 
+/*! \brief Empties a result without touching anything it used to own. */
+static void m3gPspClearResult(M3GPspLoadResult *result)
+{
+    result->loader      = NULL;
+    result->roots       = NULL;
+    result->rootCount   = 0;
+    result->userObjects = NULL;
+    result->userCount   = 0;
+}
+
 M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
                             M3Gsizei length,
-                            M3GObject **objects)
+                            M3GPspLoadResult *result)
 {
     M3GInterface m3g;
     M3GLoader loader;
@@ -123,10 +138,10 @@ M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
     M3Genum error;
     M3Gint count, i;
 
-    if (objects != NULL) {
-        *objects = NULL;
+    if (result != NULL) {
+        m3gPspClearResult(result);
     }
-    if (data == NULL || length <= 0 || objects == NULL) {
+    if (data == NULL || length <= 0 || result == NULL) {
         return M3G_PSP_ERR_INVALID;
     }
 
@@ -187,7 +202,31 @@ M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
         m3gAddRef(roots[i]);
     }
 
-    m3gDeleteObject((M3GObject) loader);
+    result->loader    = loader;
+    result->roots     = roots;
+    result->rootCount = count;
+
+    /* The objects that came out of the file with user parameters attached.
+     * They are named here rather than on demand because the engine only
+     * offers them all at once, and the caller reads them one at a time.
+     *
+     * A file without any is the normal case and not a failure; so is an arena
+     * too full to hold the array, which costs the parameters and nothing
+     * else -- the scene itself is already built and usable. */
+    result->userCount = m3gGetObjectsWithUserParameters(loader, NULL);
+    if (result->userCount > 0) {
+        result->userObjects = (M3GObject *) m3gPspArenaAlloc(
+            (M3Guint) result->userCount * (M3Guint) sizeof(M3GObject));
+        if (result->userObjects != NULL) {
+            m3gGetObjectsWithUserParameters(loader, result->userObjects);
+        }
+        else {
+            result->userCount = 0;
+        }
+    }
+    else {
+        result->userCount = 0;
+    }
 
     /* Sweep the arena while we still know which load was the last one to
      * touch it.  The result is sticky (m3gPspArenaGetStats reports the first
@@ -196,28 +235,91 @@ M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
      * forget to. */
     m3gPspArenaVerify();
 
-    *objects = roots;
     return count;
 }
 
-void m3gPspReleaseRoots(M3GObject *objects, M3Gint count)
+/*!
+ * \brief The half of releasing a result that is the same either way.
+ *
+ * Destroying the loader is what frees the user-parameter table, so the arrays
+ * that index into it go at the same moment.
+ */
+static void m3gPspEndResult(M3GPspLoadResult *result)
+{
+    if (result->userObjects != NULL) {
+        m3gPspArenaFree(result->userObjects);
+    }
+    if (result->roots != NULL) {
+        m3gPspArenaFree(result->roots);
+    }
+    if (result->loader != NULL) {
+        m3gDeleteObject((M3GObject) result->loader);
+    }
+    m3gPspClearResult(result);
+}
+
+void m3gPspReleaseResult(M3GPspLoadResult *result)
 {
     M3Gint i;
 
-    if (objects == NULL) {
+    if (result == NULL) {
         return;
     }
-    for (i = 0; i < count; ++i) {
-        if (objects[i] != NULL) {
-            m3gDeleteRef(objects[i]);
+    if (result->roots != NULL) {
+        for (i = 0; i < result->rootCount; ++i) {
+            if (result->roots[i] != NULL) {
+                m3gDeleteRef(result->roots[i]);
+            }
         }
     }
-    m3gPspArenaFree(objects);
+    m3gPspEndResult(result);
 }
 
-void m3gPspFreeRootArray(M3GObject *objects)
+void m3gPspFinishResult(M3GPspLoadResult *result)
 {
-    m3gPspArenaFree(objects);
+    if (result == NULL) {
+        return;
+    }
+    m3gPspEndResult(result);
+}
+
+/*----------------------------------------------------------------------
+ * User parameters
+ *
+ * Thin wrappers, but they are the whole reason the loader is kept alive, and
+ * putting them here keeps the two conventions m3gGetUserParameter carries --
+ * a NULL buffer asks for the length, a real one copies and answers with the
+ * id -- from having to be remembered anywhere else.
+ *--------------------------------------------------------------------*/
+
+M3Gint m3gPspGetUserParamCount(const M3GPspLoadResult *result, M3Gint object)
+{
+    if (result == NULL || result->loader == NULL
+        || object < 0 || object >= result->userCount) {
+        return 0;
+    }
+    return m3gGetNumUserParameters(result->loader, object);
+}
+
+M3Gint m3gPspGetUserParamLength(const M3GPspLoadResult *result,
+                                M3Gint object, M3Gint index)
+{
+    if (result == NULL || result->loader == NULL
+        || object < 0 || object >= result->userCount) {
+        return 0;
+    }
+    return (M3Gint) m3gGetUserParameter(result->loader, object, index, NULL);
+}
+
+M3Gint m3gPspGetUserParam(const M3GPspLoadResult *result,
+                          M3Gint object, M3Gint index, void *buffer)
+{
+    if (result == NULL || result->loader == NULL || buffer == NULL
+        || object < 0 || object >= result->userCount) {
+        return 0;
+    }
+    return (M3Gint) m3gGetUserParameter(result->loader, object, index,
+                                        (M3Gbyte *) buffer);
 }
 
 M3Gint m3gPspGetClassID(M3GObject object)

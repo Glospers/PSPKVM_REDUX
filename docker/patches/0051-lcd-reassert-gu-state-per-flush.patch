@@ -1,0 +1,65 @@
+diff --git a/javacall/implementation/psp_mips/midp/lcd.c b/javacall/implementation/psp_mips/midp/lcd.c
+index 56477448..87b30306 100644
+--- a/javacall/implementation/psp_mips/midp/lcd.c
++++ b/javacall/implementation/psp_mips/midp/lcd.c
+@@ -116,9 +116,39 @@ void swizzle_fast(u8* out, const u8* in, unsigned int width, unsigned int height
+    sceKernelDcacheWritebackAll();
+ }
+ 
++/* The buffer the next flush must draw into.  sceGu tracks this internally,
++ * but the M3G renderer (pspgl) drives the GE with display lists of its own,
++ * and GE register state persists across lists -- so nothing PSPKVM set at
++ * boot can be relied on once 3D has run.  Captured at every swap below. */
++extern void* _gu_fb;
++
+ static void pspFrameStart(int use_psp_gu) {
+ 	if (use_psp_gu) {
+ 		sceGuStart(GU_DIRECT, _gu_list);
++		/* Re-assert every piece of GE state the blit depends on.  It was
++		 * set once, in setup_gu(), which was sound while this was the only
++		 * code driving the GE; the M3G renderer changes the frame buffer
++		 * pointer, scissor, offset, texture and raster state with every
++		 * frame it draws.  The first casualty was the frame buffer pointer:
++		 * the UI was being drawn into the 3D back buffer while the display
++		 * scanned out stale frames.  Cheap -- a few dozen words per flush. */
++		sceGuDrawBuffer(GU_PSM_5650, _gu_fb, 512);
++		sceGuOffset(2048 - (480/2), 2048 - (272/2));
++		sceGuViewport(2048, 2048, 480, 272);
++		sceGuScissor(0, 0, 480, 272);
++		sceGuEnable(GU_SCISSOR_TEST);
++		sceGuDisable(GU_DEPTH_TEST);
++		sceGuDepthMask(GU_TRUE);    /* the only depth buffer is the 3D one */
++		sceGuDisable(GU_BLEND);
++		sceGuDisable(GU_ALPHA_TEST);
++		sceGuDisable(GU_STENCIL_TEST);
++		sceGuDisable(GU_LIGHTING);
++		sceGuDisable(GU_FOG);
++		sceGuDisable(GU_CULL_FACE);
++		sceGuEnable(GU_TEXTURE_2D);
++		sceGuTexFunc(GU_TFX_REPLACE, GU_TCC_RGB);
++		sceGuTexFilter(GU_NEAREST, GU_NEAREST);
++		sceGuTexWrap(GU_CLAMP, GU_CLAMP);
+ 		//sceGuStart(GU_SEND, _gu_list);
+ 		//sceGuClear(GU_COLOR_BUFFER_BIT|GU_STENCIL_BUFFER_BIT|GU_DEPTH_BUFFER_BIT);
+ 	}	
+@@ -131,11 +161,17 @@ static void pspFrameEnd(int use_psp_gu) {
+ 		//sceGuSendList(GU_TAIL, _gu_list,&tempGeContext);
+ 		//sceGuSync(0, GU_SYNC_DONE);	 
+ 		sceGuSync(0, 0);
+-		//sceDisplayWaitVblankStart();
+ 		//fbp = sceGuSwapBuffers();
+ 		//screen.image = (unsigned char*)(0x04000000+(u32)fbp);
+-		if(_enable_lcd_flush)
+-		sceGuSwapBuffers();
++		if(_enable_lcd_flush) {
++			/* The wait above was commented out for 2D speed, where frames
++			 * rarely change and a mid-scan flip is invisible.  The M3G
++			 * renderer changes every pixel every frame, and presenting at
++			 * whatever scanline the swap lands on shows as flicker.  One
++			 * vblank at most, against frames that already take longer. */
++			sceDisplayWaitVblankStart();
++			_gu_fb = sceGuSwapBuffers();
++		}
+ 	}
+ }
+ 

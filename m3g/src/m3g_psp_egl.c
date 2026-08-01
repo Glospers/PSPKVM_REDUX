@@ -187,6 +187,128 @@ EGLSurface eglCreatePixmapSurface (EGLDisplay dpy, EGLConfig config,
 }
 
 /*----------------------------------------------------------------------
+ * The two pspgl entry points that need correcting, not replacing
+ *
+ * These are linked with -Wl,--wrap (see the psp/Makefile hunk of the patch
+ * that introduced them), because unlike the functions above they cannot be
+ * plainly overridden: eglChooseConfig's archive member also defines
+ * __pspgl_pixconfigs, which eglCreatePbufferSurface pulls in, so a second
+ * definition of either name would collide with pspgl's own.  --wrap redirects
+ * every caller to the __wrap_ version and leaves the original reachable as
+ * __real_.
+ *
+ * What needs correcting, established by disassembling libGL.a:
+ *
+ *   1. eglCreatePbufferSurface REJECTS non-power-of-two sizes -- the first
+ *      thing it does with the requested width and height is fail with
+ *      EGL_BAD_ATTRIBUTE unless both are powers of two.  m3gcore asks for a
+ *      pbuffer of exactly the target size, 480x272
+ *      (src/m3g_rendercontext.inl:814, m3gValidateBackBuffer), gets NULL --
+ *      and then loses the error: the failure path asserts, asserts are
+ *      compiled out in release, and the function returns success with a NULL
+ *      surface.  Every frame after that renders into whatever surface
+ *      happened to be current (the 16x16 held one below) and reads back
+ *      zeros: the black screen this port chased for days.
+ *
+ *   2. eglChooseConfig ignores the EGL sort rules but honours minimums, and
+ *      m3gcore hardcodes the back buffer request to M3G_RGBA8
+ *      (src/m3g_rendercontext.inl:815) no matter what the target format is.
+ *      That selects pspgl's 8888 config: a 512x512 pbuffer of 1 MB, plus
+ *      512 KB of depth, which cannot fit in edram alongside PSPKVM's own
+ *      display.  The target is RGB565; a 5650 back buffer loses nothing and
+ *      halves the colour buffer.
+ *
+ * pspgl encodes an EGLConfig as (has_depth << 4) | pixel_format_index, with
+ * index 0 = 5650 first in __pspgl_pixconfigs -- both verified by disassembly
+ * (the encoding also documented at PSP_CONFIG_ID above).
+ *--------------------------------------------------------------------*/
+
+extern EGLSurface __real_eglCreatePbufferSurface(EGLDisplay dpy,
+                                                 EGLConfig config,
+                                                 const EGLint *attrib_list);
+
+/*! \brief The 5650 pixel format, index 0 of pspgl's config table. */
+#define PSPGL_CONFIG_5650   0
+/*! \brief pspgl's "this config has a depth buffer" bit. */
+#define PSPGL_CONFIG_DEPTH  (1 << 4)
+
+EGLBoolean __wrap_eglChooseConfig (EGLDisplay dpy, const EGLint *attrib_list,
+                                   EGLConfig *configs, EGLint config_size,
+                                   EGLint *num_config)
+{
+    EGLint depthSize = 0;
+    long code;
+
+    (void) dpy;
+
+    if (num_config == 0) {
+        return EGL_FALSE;
+    }
+
+    /* The only attribute that changes the answer is the depth size: every
+     * caller in this port renders to (or probes for) a 16-bit target, so the
+     * colour format is always 5650.  The colour minimums in the request are
+     * met by construction -- m3gcore only ever asks for 565 or 888(8), and
+     * the latter is deliberately downgraded; see the header comment. */
+    if (attrib_list != 0) {
+        const EGLint *a;
+        for (a = attrib_list; a[0] != EGL_NONE; a += 2) {
+            if (a[0] == EGL_DEPTH_SIZE) {
+                depthSize = a[1];
+            }
+        }
+    }
+
+    code = PSPGL_CONFIG_5650;
+    if (depthSize > 0) {
+        code |= PSPGL_CONFIG_DEPTH;
+    }
+
+    if (configs != 0 && config_size >= 1) {
+        configs[0] = (EGLConfig) code;
+        *num_config = 1;
+    }
+    else {
+        *num_config = (configs == 0) ? 1 : 0;
+    }
+    return EGL_TRUE;
+}
+
+/*! \brief The next power of two >= n, for n in the surface-size range. */
+static EGLint m3gPspCeilPow2(EGLint n)
+{
+    EGLint p = 1;
+    while (p < n) {
+        p <<= 1;
+    }
+    return p;
+}
+
+EGLSurface __wrap_eglCreatePbufferSurface (EGLDisplay dpy, EGLConfig config,
+                                           const EGLint *attrib_list)
+{
+    /* Large enough for every list m3gcore or this file builds; the longest
+     * is WIDTH, HEIGHT, LARGEST_PBUFFER, NONE = 7 entries. */
+    EGLint rounded[16];
+    int n;
+
+    if (attrib_list == 0) {
+        return __real_eglCreatePbufferSurface(dpy, config, attrib_list);
+    }
+
+    for (n = 0; attrib_list[n] != EGL_NONE && n < 14; n += 2) {
+        rounded[n]     = attrib_list[n];
+        rounded[n + 1] = attrib_list[n + 1];
+        if (attrib_list[n] == EGL_WIDTH || attrib_list[n] == EGL_HEIGHT) {
+            rounded[n + 1] = m3gPspCeilPow2(attrib_list[n + 1]);
+        }
+    }
+    rounded[n] = EGL_NONE;
+
+    return __real_eglCreatePbufferSurface(dpy, config, rounded);
+}
+
+/*----------------------------------------------------------------------
  * The process-wide GL context
  *
  * pspgl keeps the current context in one global, __pspgl_curctx, and every
@@ -245,6 +367,31 @@ int m3gPspHoldGLContext(void)
     return -1;
 #endif
 
+    /*
+     * The VFPU, before anything else.
+     *
+     * pspgl multiplies matrices on the VFPU (its context struct starts with a
+     * pspvfpu_context, and glMultMatrixf runs through it), and the VFPU is
+     * per-thread state a thread must own: PSPKVM's VM thread is created
+     * without PSP_THREAD_ATTR_VFPU, so on hardware the first VFPU instruction
+     * is a coprocessor-unusable exception, and anywhere else the matrix
+     * arithmetic runs on unowned vector state.  Loads (glLoadMatrixf) are
+     * plain CPU copies, which is why a load-only probe rendered correctly
+     * while every scene -- whose model-view stacking is multiplied -- did
+     * not.  Claiming the attribute is required for pspgl on this thread no
+     * matter what; done here because every M3G entry point that can reach GL
+     * passes through this function first.
+     */
+    {
+        extern int sceKernelChangeCurrentThreadAttr(unsigned int clearAttr,
+                                                    unsigned int setAttr);
+        static int s_vfpuClaimed;
+        if (!s_vfpuClaimed) {
+            s_vfpuClaimed = 1;
+            sceKernelChangeCurrentThreadAttr(0, 0x00004000 /* VFPU */);
+        }
+    }
+
     /* Already built: just make sure it is the current one again. m3gcore
      * makes its own context current while a target is bound and does not
      * necessarily restore ours afterwards. */
@@ -296,4 +443,72 @@ int m3gPspHoldGLContext(void)
 
     eglMakeCurrent(s_holdDisplay, s_holdSurface, s_holdSurface, s_holdContext);
     return 1;
+}
+
+/*----------------------------------------------------------------------
+ * The state-resync corrector
+ *
+ * Linked with -Wl,--wrap,eglMakeCurrent.
+ *
+ * Two drivers share the GE: pspgl, and PSPKVM's 2D blit.  The blit re-asserts
+ * everything it needs on every flush (patch 0051); pspgl instead caches every
+ * register it has written and only re-emits the ones IT changes -- foreign
+ * writes make its cache silently wrong.  Its own eglMakeCurrent re-marks
+ * registers dirty on a context switch, but only those in its init-state mask
+ * (__pspgl_context_register), and per-object state like texture base
+ * pointers is not in it: after the first 2D flush, every pspgl texture bind
+ * that "matches" the cache is skipped, and the GE keeps sampling whatever
+ * texture the 2D blit bound last -- the MIDP screen.  Textured 3D then draws
+ * garbage, and with the blending this title uses, nothing visible at all.
+ *
+ * The fix marks the WHOLE register shadow dirty on every make-current, so
+ * pspgl's first flush of the frame re-emits every register it has ever
+ * written.  The flush loop itself filters on registers whose shadow holds a
+ * real value (pspgl_context.c: (ge_reg[j] >> 24) == j), so untouched
+ * registers stay untouched.  Offsets verified against the shipped libGL.a:
+ * hw.ge_reg at +8, hw.ge_reg_touched at +1032 (disassembly of
+ * __pspgl_context_writereg).
+ *--------------------------------------------------------------------*/
+
+extern EGLBoolean __real_eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
+                                        EGLSurface read, EGLContext ctx);
+
+EGLBoolean __wrap_eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
+                                 EGLSurface read, EGLContext ctx)
+{
+    EGLBoolean result = __real_eglMakeCurrent(dpy, draw, read, ctx);
+
+    if (result && ctx != EGL_NO_CONTEXT) {
+        unsigned int *touched = (unsigned int *) ((char *) ctx + 1032);
+        int i;
+        for (i = 0; i < 8; ++i) {
+            touched[i] = 0xFFFFFFFFu;
+        }
+
+        /*
+         * The texture matrix stack, which pspgl never initialises.
+         *
+         * eglCreateContext memsets the context, and a matrix stack only gets
+         * a real value when somebody loads one -- which callers do every
+         * frame for the projection and model-view stacks and essentially
+         * never for the texture stack.  pspgl samples every texture through
+         * the GE's texture matrix (TEXMAPMODE 0x101), so an untouched stack
+         * means a ZERO texture matrix: every texture coordinate collapses to
+         * one corner texel, and all textured rendering comes out as a flat
+         * colour.  Proven by the checkerboard probe, which rendered solid
+         * white until it loaded this identity itself.
+         *
+         * Anything that sets a real texture transform afterwards simply
+         * overwrites this.
+         */
+        {
+            extern void glMatrixMode(unsigned int);
+            extern void glLoadIdentity(void);
+
+            glMatrixMode(0x1702 /* GL_TEXTURE */);
+            glLoadIdentity();
+            glMatrixMode(0x1700 /* GL_MODELVIEW */);
+        }
+    }
+    return result;
 }

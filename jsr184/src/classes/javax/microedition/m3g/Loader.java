@@ -129,6 +129,7 @@ public final class Loader {
                     }
                     roots[i] = object;
                 }
+                attachUserObjects();
                 loaded = true;
                 return roots;
             } finally {
@@ -144,6 +145,38 @@ public final class Loader {
                     nResultAbort();
                 }
             }
+        }
+    }
+
+    /**
+     * Hands each loaded object the user parameters the file attached to it.
+     *
+     * JSR-184 delivers these as the object's user object: a Hashtable keyed by
+     * the parameter id, holding the raw bytes. Titles use it to carry data the
+     * format has no field for -- what a node is for, where something spawns --
+     * so an object that had parameters and answers null to getUserObject() is
+     * a MIDlet reading the wrong thing, not an empty one.
+     *
+     * Must run before nResultCommit: the parameters belong to the loader, and
+     * that is what releases it.
+     */
+    private static void attachUserObjects() {
+        int objects = nUserObjectCount();
+
+        for (int i = 0; i < objects; i++) {
+            Object3D object = Object3D.wrap(nUserObjectHandle(i));
+            int count = nUserParamCount(i);
+
+            if (object == null || count <= 0) {
+                continue;
+            }
+
+            java.util.Hashtable parameters = new java.util.Hashtable();
+            for (int j = 0; j < count; j++) {
+                byte[] value = new byte[nUserParamLength(i, j)];
+                parameters.put(new Integer(nUserParam(i, j, value)), value);
+            }
+            object.setUserObject(parameters);
         }
     }
 
@@ -210,6 +243,21 @@ public final class Loader {
 
     /** m3gcore class id of root <code>index</code> of the pending result. */
     private static native int nResultClass(int index);
+
+    /** How many loaded objects carry user parameters. */
+    private static native int nUserObjectCount();
+
+    /** Handle of the object owning user-parameter set <code>object</code>. */
+    private static native int nUserObjectHandle(int object);
+
+    /** How many parameters that set holds. */
+    private static native int nUserParamCount(int object);
+
+    /** Length in bytes of one parameter. */
+    private static native int nUserParamLength(int object, int index);
+
+    /** Copies one parameter into <code>value</code>; returns its id. */
+    private static native int nUserParam(int object, int index, byte[] value);
 
     /** Releases the pending result, keeping the objects alive. */
     private static native void nResultCommit();

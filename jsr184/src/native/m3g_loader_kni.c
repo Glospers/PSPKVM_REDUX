@@ -43,8 +43,7 @@
  * The pending load result
  *--------------------------------------------------------------------*/
 
-static M3GObject *s_roots     = NULL;
-static M3Gint     s_rootCount = 0;
+static M3GPspLoadResult s_result;
 
 /*----------------------------------------------------------------------
  * Arena reporting
@@ -124,11 +123,7 @@ static void m3gReportArena(jint result)
  */
 static void m3gDiscardPendingResult(void)
 {
-    if (s_roots != NULL) {
-        m3gPspReleaseRoots(s_roots, s_rootCount);
-        s_roots = NULL;
-    }
-    s_rootCount = 0;
+    m3gPspReleaseResult(&s_result);
 }
 
 /*----------------------------------------------------------------------
@@ -197,8 +192,7 @@ Java_javax_microedition_m3g_Loader_nLoadData()
 
             result = (jint) m3gPspLoadFromMemory(bytes,
                                                  (M3Gsizei) length,
-                                                 &s_roots);
-            s_rootCount = (result > 0) ? (M3Gint) result : 0;
+                                                 &s_result);
         }
     }
     KNI_EndHandles();
@@ -217,8 +211,8 @@ Java_javax_microedition_m3g_Loader_nResultHandle()
     jint index = KNI_GetParameterAsInt(1);
     jint handle = 0;
 
-    if (s_roots != NULL && index >= 0 && index < s_rootCount) {
-        handle = (jint) s_roots[index];
+    if (s_result.roots != NULL && index >= 0 && index < s_result.rootCount) {
+        handle = (jint) s_result.roots[index];
     }
     KNI_ReturnInt(handle);
 }
@@ -232,10 +226,102 @@ Java_javax_microedition_m3g_Loader_nResultClass()
     jint index = KNI_GetParameterAsInt(1);
     jint classID = -1;
 
-    if (s_roots != NULL && index >= 0 && index < s_rootCount) {
-        classID = (jint) m3gPspGetClassID(s_roots[index]);
+    if (s_result.roots != NULL && index >= 0 && index < s_result.rootCount) {
+        classID = (jint) m3gPspGetClassID(s_result.roots[index]);
     }
     KNI_ReturnInt(classID);
+}
+
+/*----------------------------------------------------------------------
+ * User parameters
+ *
+ * JSR-184 requires Loader.load to hand back the (id, bytes) pairs a file
+ * attaches to an object as that object's user object, in a Hashtable.  They
+ * live in the loader rather than in the objects, which is why the load result
+ * keeps it alive until the sequence below has finished -- see M3GPspLoadResult
+ * in m3g/inc/M3G/m3g_psp.h.
+ *
+ * Read one at a time for the same reason as the roots: KNI cannot hand back an
+ * array the native side allocated, and the whole sequence is already under
+ * Loader's monitor.
+ *--------------------------------------------------------------------*/
+
+/*
+ * private static native int nUserObjectCount();
+ */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_Loader_nUserObjectCount()
+{
+    KNI_ReturnInt((jint) s_result.userCount);
+}
+
+/*
+ * private static native int nUserObjectHandle(int object);
+ */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_Loader_nUserObjectHandle()
+{
+    jint object = KNI_GetParameterAsInt(1);
+    jint handle = 0;
+
+    if (s_result.userObjects != NULL
+        && object >= 0 && object < s_result.userCount) {
+        handle = (jint) s_result.userObjects[object];
+    }
+    KNI_ReturnInt(handle);
+}
+
+/*
+ * private static native int nUserParamCount(int object);
+ */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_Loader_nUserParamCount()
+{
+    KNI_ReturnInt((jint) m3gPspGetUserParamCount(&s_result,
+                                                 KNI_GetParameterAsInt(1)));
+}
+
+/*
+ * private static native int nUserParamLength(int object, int index);
+ */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_Loader_nUserParamLength()
+{
+    KNI_ReturnInt((jint) m3gPspGetUserParamLength(&s_result,
+                                                  KNI_GetParameterAsInt(1),
+                                                  KNI_GetParameterAsInt(2)));
+}
+
+/*
+ * private static native int nUserParam(int object, int index, byte[] value);
+ *
+ * Copies the parameter into the caller's array and answers with its id.
+ */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_Loader_nUserParam()
+{
+    jint object = KNI_GetParameterAsInt(1);
+    jint index  = KNI_GetParameterAsInt(2);
+    jint id = 0;
+
+    KNI_StartHandles(1);
+    {
+        KNI_DeclareHandle(value);
+        KNI_GetParameterAsObject(3, value);
+
+        if (!KNI_IsNullHandle(value)
+            && KNI_GetArrayLength(value)
+                   >= m3gPspGetUserParamLength(&s_result, object, index)) {
+            /* Zero copy into the Java array, on the same terms as the file
+             * bytes going the other way in nLoadData: the engine call below
+             * cannot re-enter the VM, so the array cannot move under it. */
+            id = m3gPspGetUserParam(&s_result, object, index,
+                                    SNI_GetRawArrayPointer(value));
+        }
+    }
+    KNI_EndHandles();
+
+    KNI_ReturnInt(id);
 }
 
 /*
@@ -247,9 +333,7 @@ Java_javax_microedition_m3g_Loader_nResultClass()
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Loader_nResultCommit()
 {
-    m3gPspFreeRootArray(s_roots);
-    s_roots = NULL;
-    s_rootCount = 0;
+    m3gPspFinishResult(&s_result);
 
     KNI_ReturnVoid();
 }

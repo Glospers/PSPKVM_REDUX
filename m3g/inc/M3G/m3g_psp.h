@@ -95,39 +95,86 @@ M3GInterface m3gPspGetInterface(void);
 M3GInterface m3gPspPeekInterface(void);
 
 /*!
+ * \brief Everything one parse produced.
+ *
+ * The loader is part of the result, and outliving the parse is the point of
+ * it.  A .m3g file may attach user parameters -- arbitrary (id, bytes) pairs --
+ * to any object in it, and the engine keeps them in the *loader*, not in the
+ * objects: m3gGetObjectsWithUserParameters and its two companions all take an
+ * M3GLoader and read a table that m3gCleanupLoader frees
+ * (m3gcore/src/m3g_loader.c:2980-3050, :2723).  Destroying the loader as soon
+ * as the parse finished therefore threw the parameters away before anyone
+ * could read them, which is exactly what JSR-184 requires Loader.load to hand
+ * back as each object's user object.
+ *
+ * So the loader now lives until the caller says it is finished with the
+ * result.  Every field below is owned by the result and is not valid after
+ * either release function has run.
+ */
+typedef struct {
+    M3GLoader  loader;      /*!< the parse, kept alive for the fields below  */
+    M3GObject *roots;       /*!< the objects nothing else in the file refers
+                             *   to, one reference held on each              */
+    M3Gint     rootCount;
+    M3GObject *userObjects; /*!< the objects carrying user parameters, in the
+                             *   order the accessors below index them        */
+    M3Gint     userCount;
+} M3GPspLoadResult;
+
+/*!
  * \brief Parses one .m3g image out of memory.
  *
- * \param data    the file bytes
- * \param length  how many of them
- * \param objects receives a newly allocated array of the root (unreferenced)
- *                objects, each with one reference held on the caller's behalf.
- *                Release with m3gPspReleaseRoots.
+ * \param data   the file bytes
+ * \param length how many of them
+ * \param result receives the roots, the user-parameter table and the loader
+ *               that owns both.  Release with m3gPspFinishResult once the
+ *               roots have been handed on, or m3gPspReleaseResult to throw the
+ *               whole scene away.
  *
  * \return the number of roots (>= 0), or one of M3G_PSP_ERR_* on failure, in
- *         which case *objects is set to NULL and nothing needs releasing.
+ *         which case the result is emptied and nothing needs releasing.
  */
 M3Gint m3gPspLoadFromMemory(const M3Gubyte *data,
                             M3Gsizei length,
-                            M3GObject **objects);
+                            M3GPspLoadResult *result);
 
 /*!
- * \brief Drops the references m3gPspLoadFromMemory took and frees the array.
+ * \brief Throws the whole result away, scene included.
  *
- * Pass the count it returned.  Every root goes to refcount zero and takes the
- * scene graph hanging off it along, so this is the "the load was for nothing"
- * path.
+ * Every root goes to refcount zero and takes the scene graph hanging off it
+ * along, so this is the "the load was for nothing" path.
  */
-void m3gPspReleaseRoots(M3GObject *objects, M3Gint count);
+void m3gPspReleaseResult(M3GPspLoadResult *result);
 
 /*!
- * \brief Frees the array but keeps the objects alive.
+ * \brief Releases the result but keeps the objects alive.
  *
- * The counterpart of m3gPspReleaseRoots for when ownership of the references
+ * The counterpart of m3gPspReleaseResult for when ownership of the references
  * has been handed to somebody else -- in practice, to the Java wrappers the
- * KNI layer built around the handles.  Freeing here rather than in the caller
- * keeps the malloc and the free in the same translation unit.
+ * KNI layer built around the handles.
  */
-void m3gPspFreeRootArray(M3GObject *objects);
+void m3gPspFinishResult(M3GPspLoadResult *result);
+
+/*!
+ * \brief Number of user parameters carried by \a object.
+ *
+ * \param object index into result->userObjects, not a handle
+ */
+M3Gint m3gPspGetUserParamCount(const M3GPspLoadResult *result, M3Gint object);
+
+/*! \brief Length in bytes of parameter \a index of \a object. */
+M3Gint m3gPspGetUserParamLength(const M3GPspLoadResult *result,
+                                M3Gint object, M3Gint index);
+
+/*!
+ * \brief Copies parameter \a index of \a object into \a buffer.
+ *
+ * \a buffer must have room for m3gPspGetUserParamLength bytes.
+ *
+ * \return the parameter's id
+ */
+M3Gint m3gPspGetUserParam(const M3GPspLoadResult *result,
+                          M3Gint object, M3Gint index, void *buffer);
 
 /*! \brief m3gGetClass, but tolerant of a NULL handle (returns -1). */
 M3Gint m3gPspGetClassID(M3GObject object);
@@ -201,6 +248,17 @@ M3Gint m3gPspRendererReady(void);
 
 /*! \brief Collects and clears the engine's error code. */
 M3Gint m3gPspTakeError(void);
+
+/*!
+ * \brief Announces the frame the engine is about to read back.
+ *
+ * m3gcore reads a finished frame out of GL in dozens of small chunks, each of
+ * which costs a full GE synchronisation.  The read-back corrector in
+ * src/m3g_psp_gl.c uses this hint to fetch the whole frame in one transfer
+ * and serve the chunks from memory.  Called by m3gPspReleaseTarget; anything
+ * else driving m3gReleaseTarget by hand should do the same.
+ */
+void m3gPspReadbackHint(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
 
 void   m3gPspSetViewport(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
 void   m3gPspSetClipRect(M3Gint x, M3Gint y, M3Gint width, M3Gint height);

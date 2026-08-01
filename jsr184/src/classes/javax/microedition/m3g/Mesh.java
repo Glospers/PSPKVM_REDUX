@@ -104,11 +104,50 @@ public class Mesh extends Node {
         return submeshes[index];
     }
 
+    /**
+     * Sets the appearance of one submesh.
+     *
+     * The array below only exists for a Mesh a MIDlet built: one that came out
+     * of Loader was made by Object3D.createWrapper, whose constructor takes no
+     * geometry and leaves every field here null, because the engine holds all
+     * of it. Assigning into the array unconditionally therefore threw a
+     * NullPointerException on the first loaded mesh anyone re-dressed -- which
+     * is what titles do to a scene the moment they have loaded it, and it
+     * killed the thread that was doing the loading.
+     *
+     * So the engine is asked first and is the only thing that has to answer;
+     * the array is updated when there is one, since it is what applyDeferred
+     * re-pushes and what getAppearance reads while the object has no handle.
+     */
     public void setAppearance(int index, Appearance appearance) {
-        appearances[index] = appearance;
         if (handle != 0) {
-            nSetAppearance(handle, index,
-                           (appearance != null) ? appearance.handle : 0);
+            if (index < 0 || index >= nGetSubmeshCount(handle)) {
+                throw new IndexOutOfBoundsException();
+            }
+            if (appearance != null && appearance.handle == 0) {
+                /* Deferred appearance into a live mesh: forwarding now would
+                 * strip the file's appearance for nothing. See
+                 * Object3D.linkLater. */
+                final int fIndex = index;
+                final Appearance fValue = appearance;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fValue.handle != 0) {
+                            nSetAppearance(handle, fIndex, fValue.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetAppearance(handle, index,
+                               (appearance != null) ? appearance.handle : 0);
+            }
+        }
+        if (appearances != null) {
+            if (index < 0 || index >= appearances.length) {
+                throw new IndexOutOfBoundsException();
+            }
+            appearances[index] = appearance;
         }
     }
 
@@ -125,6 +164,9 @@ public class Mesh extends Node {
     /** Re-pushes appearances, which may have been set after construction. */
     void applyDeferred() {
         super.applyDeferred();
+        if (appearances == null) {
+            return;   /* built by the loader; the engine already has them */
+        }
         for (int i = 0; i < appearances.length; i++) {
             if (appearances[i] != null && appearances[i].handle != 0) {
                 nSetAppearance(handle, i, appearances[i].handle);

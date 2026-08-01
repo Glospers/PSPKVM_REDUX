@@ -89,7 +89,7 @@ public final class Graphics3D {
         // The engine always draws into MIDP's screen buffer, whatever kind of
         // target the MIDlet named; the size it reports back is the size of
         // that buffer, which is also the default viewport.
-        int size = nBind(hints, depthBuffer ? 1 : 0);
+        int size = nBind(target, hints, depthBuffer ? 1 : 0);
         if (size > 0) {
             nativeBound = true;
             // Binding is one of the two things that brings the renderer up, so
@@ -137,7 +137,12 @@ public final class Graphics3D {
 
     public void releaseTarget() {
         if (nativeBound) {
-            nRelease();
+            // The target goes back to the native side because that is where
+            // the finished frame has to be written: the engine renders into a
+            // staging buffer at a fixed address, not into the MIDlet's own
+            // pixels, which may have moved while it was drawing. See nBind in
+            // jsr184/src/native/m3g_graphics3d_kni.c.
+            nRelease(target);
             nativeBound = false;
         }
         target = null;
@@ -362,8 +367,8 @@ public final class Graphics3D {
      */
 
     /** @return (width &lt;&lt; 16) | height, or a negative failure code. */
-    private static native int nBind(int hints, int depthBuffer);
-    private static native int nRelease();
+    private static native int nBind(Object target, int hints, int depthBuffer);
+    private static native int nRelease(Object target);
     private static native void nSetViewport(int x, int y, int width, int height);
     private static native void nSetClipRect(int x, int y, int width, int height);
     private static native void nSetDepthRange(float near, float far);

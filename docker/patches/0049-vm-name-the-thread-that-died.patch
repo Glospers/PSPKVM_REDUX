@@ -1,0 +1,71 @@
+diff --git a/cldc/src/vm/includeDB b/cldc/src/vm/includeDB
+index 7d4a37f2..bbf0684e 100644
+--- a/cldc/src/vm/includeDB
++++ b/cldc/src/vm/includeDB
+@@ -1682,6 +1682,8 @@ Thread.hpp                       ThreadObj.hpp
+ Thread.hpp                       OsMisc.hpp
+ Thread.cpp                       jvm.h
+ Thread.cpp                       Oop.hpp
++Thread.cpp                       JavaClass.hpp
++Thread.cpp                       Symbol.hpp
+ Thread.cpp                       OopDesc.inline.hpp
+ Thread.cpp                       Thread.hpp
+ Thread.cpp                       ObjectHeap_<iarch>.hpp
+diff --git a/cldc/src/vm/share/runtime/Thread.cpp b/cldc/src/vm/share/runtime/Thread.cpp
+index e0f284e8..01d5d5e1 100644
+--- a/cldc/src/vm/share/runtime/Thread.cpp
++++ b/cldc/src/vm/share/runtime/Thread.cpp
+@@ -192,6 +192,45 @@ void Thread::start_lightweight_thread() {
+ }
+ #endif
+ 
++// Diagnostic: name a thread that died, on a sink that exists in this build.
++//
++// The report below this one goes to tty, and from there through JVMSPI_PrintRaw
++// to javacall_print -- but print_current_pending_exception_stack_trace produces
++// nothing once the class library is romized, so all that survives is a banner
++// with no exception on it. A MIDlet thread can therefore die and leave the VM
++// with nothing runnable, which from the outside is indistinguishable from a
++// deadlock: the screen holds its last frame and the event loop polls forever.
++//
++// So write the class name straight to the diagnostic log, taking the bytes off
++// the class's own Symbol rather than asking anything to print it. Weak because
++// the same sources build the romizer, which runs on the build machine and has
++// no javacall behind it.
++extern "C" void javacall_diag_log(const char *s) __attribute__((weak));
++
++static void report_uncaught_exception(BasicOop *exception) {
++  char line[128];
++  int i, length;
++
++  if (javacall_diag_log == 0) {
++    return;
++  }
++
++  JavaClass::Raw klass = exception->blueprint();
++  Symbol::Raw name = klass().name();
++
++  jvm_strcpy(line, "VM: thread died, uncaught ");
++  length = jvm_strlen(line);
++
++  for (i = 0; i < name().length() && length < (int)sizeof(line) - 2; i++) {
++    char c = (char) name().byte_at(i);
++    line[length++] = (c == '/') ? '.' : c;
++  }
++  line[length++] = '\n';
++  line[length] = '\0';
++
++  javacall_diag_log(line);
++}
++
+ void Thread::lightweight_thread_uncaught_exception() {
+   Oop::Raw exception = Thread::current_pending_exception();
+   if (exception.equals(Universe::string_class())) {
+@@ -199,6 +238,7 @@ void Thread::lightweight_thread_uncaught_exception() {
+     // Task::get_termination_object()
+     clear_current_pending_exception();
+   } else {
++    report_uncaught_exception(&exception);
+     tty->print(MSG_UNCAUGHT_EXCEPTIONS);
+     print_current_pending_exception_stack_trace();
+     clear_current_pending_exception();

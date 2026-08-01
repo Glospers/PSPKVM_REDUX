@@ -111,7 +111,59 @@ INCLUDES    := -I$(M3G_DIR)/inc -I$(M3GCORE_DIR)/inc -I$(M3GCORE_DIR)/src
 # run.
 DEFINES     := -DM3G_TARGET_SYMBIAN \
                -Dm3gSymbianInflateBlock=m3gPspInflateBlock \
-               -DM3G_FORCE_BUFFERED_RENDERING
+               -DM3G_FORCE_BUFFERED_RENDERING \
+               -DM3G_NUM_TEXTURE_UNITS=1
+
+# M3G_NUM_TEXTURE_UNITS=1 because the GE has one texture unit and the GL shim
+# necessarily makes glActiveTexture a no-op.  m3gcore's default is 2, and its
+# per-unit appearance setup then ENABLES the real unit as "unit 0" and
+# immediately DISABLES it again as "unit 1" -- with a no-op ActiveTexture both
+# land on the same hardware, so every textured mesh drew untextured (found via
+# the host trace: enable/bind/upload followed by disable before every draw).
+
+# TEMPORARY -- one-shot dump of an early frame's raw 565 read-back, to place
+# the white-frame fault on one side or the other of the format conversion.
+# See the M3G_PSP_READBACK_DUMP block in src/m3g_psp_gl.c.
+# DEFINES   += -DM3G_PSP_READBACK_DUMP   (diagnostic, off)
+
+# TEMPORARY -- clear the scene to dark blue each frame so geometry cannot hide
+# behind the accumulated buffer. See m3gPspClear in src/m3g_psp_render.c.
+# DEFINES   += -DM3G_PSP_SCENE_BACKDROP   (diagnostic, off)
+
+# TEMPORARY -- never enable face culling, to test whether the GL-to-GE flip
+# inverts winding and the whole scene is being culled as back faces. See
+# __wrap_glEnable in src/m3g_psp_gl.c.  (Acquitted: the screen stayed flat
+# blue with culling off. Kept while the raster probe below runs.)
+# DEFINES   += -DM3G_PSP_NO_CULL   (diagnostic, off)
+
+# TEMPORARY -- draw one yellow triangle through raw GL each frame, the same
+# usage the spinning-cube demo proved. Separates "pspgl cannot draw into this
+# pbuffer" from "the engine's draws are malformed". See m3gPspClear in
+# src/m3g_psp_render.c.
+# DEFINES   += -DM3G_PSP_PROBE_TRIANGLE   (diagnostic, off)
+
+# The video memory budget, sized so the render target can never be evicted.
+#
+# The back buffer is a 512x512 pbuffer (pspgl only makes power-of-two
+# surfaces; the EGL wrapper in src/m3g_psp_egl.c rounds the engine's 480x272
+# request up) in 5650 with a depth buffer: 512 KB + 512 KB = 1024 KB, and it
+# must live in edram -- the GE happily reports success rasterising into main
+# memory, but nothing CPU-visible ever appears there, which was one layer of
+# the black-screen problem.
+#
+# So the reservation leaves pspgl 1048 KB: the pbuffer pair fits with 24 KB to
+# spare, and that spare is deliberately too small for any texture -- a texture
+# that fit in edram later could force pspgl to evict the very colour buffer
+# the frame is being drawn into.  Textures land in main memory instead, which
+# the GE reads perfectly well.
+#
+# 1000 KB reserved requires PSPKVM's own display to fit in it: its two frame
+# buffers were 8888 (1360 KB with depth, leaving only 688 KB) and are switched
+# to 5650 by the same patch that adds the --wrap flags -- lossless, because
+# what is blitted into them is MIDP's RGB565 screen buffer.  The value is
+# clamped up to PSPKVM's real high-water mark either way (src/m3g_psp_vidmem.c),
+# so a future PSPKVM that takes more simply shrinks pspgl's share.
+DEFINES     += -DM3G_PSP_VRAM_RESERVE_KB=1000
 
 # Reserve only the edram PSPKVM actually holds, not all of it.
 #

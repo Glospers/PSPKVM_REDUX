@@ -1,0 +1,38 @@
+diff --git a/psp/Makefile b/psp/Makefile
+index 32f44e9..005a236 100644
+--- a/psp/Makefile
++++ b/psp/Makefile
+@@ -28,6 +28,11 @@ endif
+ LIBDIR = /usr/local/pspdev/psp/lib $(ROOT)/midp/build/javacall_psp/output/bin/mips $(ROOT)/cldc/build/javacall_psp_gcc/target/bin $(ROOT)/pcsl/output/javacall_mips/lib $(ROOT)/javacall/configuration/phoneMEFeature/psp_mips/output/lib $(ROOT)/m3g/lib
+ #LDFLAGS =  -L$(ROOT)/midp/build/javacall_psp/output/bin/mips -L$(ROOT)/cldc/build/javacall_psp_gcc/target/bin -L$(ROOT)/pcsl/output/javacall_mips/lib -L$(ROOT)/javacall/configuration/phoneMEFeature/psp_mips/output/lib
+ LIBS := -lpspaudiocodec -lpspmpeg -lSDL -lSDL_mixer -lpspirkeyb -lvorbis -lvorbisfile -logg -lfreetype -lpng -lz -lbz2 -lm -lpsphprm -lpspaudiolib -lpspaudio -lpspwlan -lpspgu -lGL -lpspvfpu -lpspusb -lpsprtc -Wl,--end-group
++# The M3G port corrects pspgl entry points rather than replacing them; the
++# originals stay linked and every caller is redirected (plain overrides would
++# collide with pspgl s own definitions). The wrappers are in
++# m3g/src/m3g_psp_egl.c and m3g/src/m3g_psp_gl.c.
++LDFLAGS += -Wl,--wrap,eglChooseConfig -Wl,--wrap,eglCreatePbufferSurface -Wl,--wrap,glReadPixels -Wl,--wrap,glEnable -Wl,--wrap,glDisable -Wl,--wrap,__pspgl_ge_vertex_fmt -Wl,--wrap,glDrawElements -Wl,--wrap,glDrawArrays -Wl,--wrap,eglMakeCurrent -Wl,--wrap,glGetError -Wl,--wrap,glLightModelf -Wl,--wrap,glLightModelfv
+ LIBS := -Wl,--start-group -Wl,--whole-archive -lm3g -Wl,--no-whole-archive -lmidp$(g) -lcldc_vm$(cg) -lstdc++ -lpcsl_file -lpcsl_print -lpcsl_memory -lpcsl_string -lpcsl_network -ljavacall$(g) $(LIBS)
+ 
+ EXTRA_TARGETS = EBOOT.PBP 
+diff --git a/psp/pspkvm.c b/psp/pspkvm.c
+index a1b33fc..2a799bf 100644
+--- a/psp/pspkvm.c
++++ b/psp/pspkvm.c
+@@ -534,14 +534,14 @@ void* _gu_fb;
+ 
+ static void setup_gu() {
+ 
+-	void* fbp0 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_8888);
+-	void* fbp1 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_8888);
++	void* fbp0 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
++	void* fbp1 = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_5650);
+ 	void* zbp = getStaticVramBuffer(BUF_WIDTH,SCR_HEIGHT,GU_PSM_4444);
+ 
+ 	sceGuInit();
+ 	_gu_list = _list;
+ 	sceGuStart(GU_DIRECT,_gu_list);
+-	sceGuDrawBuffer(GU_PSM_8888,fbp0,BUF_WIDTH);
++	sceGuDrawBuffer(GU_PSM_5650,fbp0,BUF_WIDTH);
+ 	sceGuDispBuffer(SCR_WIDTH,SCR_HEIGHT,fbp1,BUF_WIDTH);
+ 	sceGuDepthBuffer(zbp,BUF_WIDTH);
+ 	sceGuOffset(2048 - (SCR_WIDTH/2),2048 - (SCR_HEIGHT/2));

@@ -4,6 +4,7 @@
 # source boundary stays clean.
 /pspkvm/
 /m3gcore/
+/pspgl/
 
 /.debug/
 
@@ -19,10 +20,12 @@ PARAM.SFO
 /m3g/lib/
 /m3g/test/obj/
 /m3g/test/m3g_load_test
+/m3g/test/m3g_render_test
 /build/
 /dist/
 /ppsspp_win/
 /working pspkvm/
+/ke_emulator/
 
 # --- OS / editor -------------------------------------------------------------
 .DS_Store

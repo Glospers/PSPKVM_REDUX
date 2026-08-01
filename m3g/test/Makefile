@@ -37,6 +37,7 @@ ZLIB       ?= -lz
 
 OBJDIR     := $(TEST_DIR)/obj
 TARGET     := $(TEST_DIR)/m3g_load_test
+RENDER     := $(TEST_DIR)/m3g_render_test
 
 INCLUDES   := -I$(M3G_DIR)/inc -I$(M3GCORE_DIR)/inc -I$(M3GCORE_DIR)/src
 DEFINES    := -DM3G_TARGET_SYMBIAN -Dm3gSymbianInflateBlock=m3gPspInflateBlock
@@ -53,14 +54,22 @@ OBJS       := $(OBJDIR)/m3g_core.o \
               $(OBJDIR)/m3g_gl_stub.o \
               $(OBJDIR)/m3g_egl_stub.o \
               $(OBJDIR)/m3g_native_stub.o \
+              $(OBJDIR)/m3g_psp_platform_stub.o \
               $(OBJDIR)/m3g_load_test.o
+
+RENDER_OBJS := $(filter-out $(OBJDIR)/m3g_load_test.o,$(OBJS)) \
+               $(OBJDIR)/m3g_psp_render.o \
+               $(OBJDIR)/m3g_render_test.o
 
 .PHONY: all clean
 
-all: $(TARGET)
+all: $(TARGET) $(RENDER)
 
 $(TARGET): $(OBJS)
 	$(HOSTCC) $(ARCHFLAGS) -o $@ $(OBJS) $(ZLIB) -lm
+
+$(RENDER): $(RENDER_OBJS)
+	$(HOSTCC) $(ARCHFLAGS) -o $@ $(RENDER_OBJS) $(ZLIB) -lm
 
 $(OBJDIR)/m3g_core.o: $(M3GCORE_DIR)/src/m3g_core.c | $(OBJDIR)
 	$(HOSTCC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
@@ -68,7 +77,7 @@ $(OBJDIR)/m3g_core.o: $(M3GCORE_DIR)/src/m3g_core.c | $(OBJDIR)
 $(OBJDIR)/%.o: $(M3G_DIR)/src/%.c | $(OBJDIR)
 	$(HOSTCC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
 
-$(OBJDIR)/%.o: $(M3G_DIR)/src/stub/%.c | $(OBJDIR)
+$(OBJDIR)/%.o: $(TEST_DIR)/stub/%.c | $(OBJDIR)
 	$(HOSTCC) $(CFLAGS) $(INCLUDES) $(DEFINES) -c $< -o $@
 
 $(OBJDIR)/%.o: $(TEST_DIR)/%.c | $(OBJDIR)
