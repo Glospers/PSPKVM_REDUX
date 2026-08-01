@@ -395,6 +395,9 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
     jint hints       = KNI_GetParameterAsInt(2);
     jint depthBuffer = KNI_GetParameterAsInt(3);
 
+    /* TEMPORARY -- poisoned-parent sweep, once per frame. */
+    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "bind");
+
     unsigned short *pixels;
     unsigned short *stage;
     int screenWidth = 0, screenHeight = 0, encoding = 0;
@@ -656,6 +659,32 @@ Java_javax_microedition_m3g_Graphics3D_nRenderNode()
     if (handle == 0) {
         m3gTrace("renderNode nohandle", 0, 0);
         KNI_ReturnInt(M3G_PSP_ERR_INVALID);
+    }
+
+    /* TEMPORARY -- the poisoned-parent hunt.  The sweep timestamps the
+     * first moment any node's parent link stops being a pointer; the
+     * direct check below keeps THIS call from walking a poisoned chain
+     * (the crash lived here, in the engine's alignment update), logging
+     * instead of dying. */
+    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "renderNode");
+    {
+        const void *parent = *(const void **)
+            ((const char *) (size_t) handle + 0x3C);
+        if (!m3gPspArenaPointerOk(parent)) {
+            extern void javacall_diag_log(const char *s)
+                __attribute__((weak));
+            static int logged;
+            if (logged < 8 && javacall_diag_log != 0) {
+                char line[120];
+                logged++;
+                sprintf(line, "M3G: renderNode SKIP obj %u(0x%x) parent"
+                        " 0x%x\n", (unsigned int) handle,
+                        (unsigned int) handle,
+                        (unsigned int) (size_t) parent);
+                javacall_diag_log(line);
+            }
+            KNI_ReturnInt(M3G_PSP_RENDER_OK);
+        }
     }
 
     KNI_StartHandles(1);

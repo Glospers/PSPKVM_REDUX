@@ -113,6 +113,9 @@ static void m3gReportArena(jint result)
             (int) st.failures, (int) st.corrupt, (int) st.fault,
             (unsigned int) st.firstBad);
     javacall_diag_log(line);
+
+    /* TEMPORARY -- poisoned-parent sweep after every load. */
+    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "load");
 }
 
 /*!

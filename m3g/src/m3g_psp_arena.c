@@ -62,6 +62,7 @@
  */
 
 #include "M3G/m3g_psp.h"
+#include <stdio.h>      /* sprintf -- the TEMPORARY node audit below */
 
 /*----------------------------------------------------------------------
  * Tunables
@@ -481,6 +482,76 @@ M3Gint m3gPspArenaVerify(void)
     }
 
     return M3G_PSP_ARENA_OK;
+}
+
+/*!
+ * \brief TEMPORARY -- sweeps live engine objects for a float-poisoned node
+ * parent link.
+ *
+ * The race-start crash is m3gInvalidateTransformable walking a node whose
+ * parent word (+0x3c) holds 0x3f800000 -- matrix data, not a pointer.  The
+ * writer has evaded every gate on the Java-called natives and the arena
+ * addresses shift between runs, so instead of trapping an address, this
+ * walks every used block after each interesting operation: a block whose
+ * payload starts with the interface pointer is an engine object, the class
+ * byte says whether it is a node, and a node parent must be null or inside
+ * the arena.  The first call that reports poison brackets the writer
+ * between two lines of the existing call log.
+ */
+void m3gPspArenaAuditNodes(const void *iface, const char *when)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    /* Camera 5, Group 8, Light 12, Mesh 15, MorphingMesh 16,
+     * SkinnedMesh 19, Sprite 20, World 24 -- the node classes. */
+    static const M3Guint nodeMask =
+        (1u << 5) | (1u << 8) | (1u << 12) | (1u << 15)
+        | (1u << 16) | (1u << 19) | (1u << 20) | (1u << 24);
+    static int logged;
+    Header *h;
+
+    if (!s_ready || javacall_diag_log == 0 || logged >= 8) {
+        return;
+    }
+    for (h = (Header *) s_first; h != 0; h = nextBlock(h)) {
+        if (h->magic != HDR_MAGIC) {
+            return;         /* verify() owns reporting structural damage */
+        }
+        if (h->used && h->size >= 0x44) {
+            const M3Guint *obj =
+                (const M3Guint *) ((M3Gubyte *) h + HDR_SIZE);
+            if (obj[0] == (M3Guint) iface) {
+                M3Guint cls = ((const M3Gubyte *) obj)[4];
+                if (cls <= 24u && ((nodeMask >> cls) & 1u)) {
+                    M3Guint parent = obj[0x3C / 4];
+                    if (parent != 0
+                        && ((M3Gubyte *) parent < s_first
+                            || (M3Gubyte *) parent >= s_end)) {
+                        char line[144];
+                        logged++;
+                        sprintf(line,
+                                "M3G: AUDIT %s obj %u(0x%x) class %u"
+                                " parent 0x%x\n",
+                                when, (M3Guint) obj, (M3Guint) obj,
+                                (unsigned int) cls, (unsigned int) parent);
+                        javacall_diag_log(line);
+                        if (logged >= 8) {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/*! \brief TEMPORARY companion to the audit: is this a plausible engine
+ *  pointer -- null or inside the arena? */
+M3Gint m3gPspArenaPointerOk(const void *p)
+{
+    if (p == 0) {
+        return 1;
+    }
+    return (M3Gint) ((M3Gubyte *) p >= s_first && (M3Gubyte *) p < s_end);
 }
 
 void m3gPspArenaGetStats(M3GPspArenaStats *out)

@@ -497,6 +497,37 @@ Java_javax_microedition_m3g_Object3D_nGetUserID()
 }
 
 /*
+ * private static native void nAddRef(int handle);
+ *
+ * Takes a real engine reference for every Java wrapper.
+ *
+ * Without it a wrapper holds a raw pointer with no claim on the object's
+ * lifetime: the engine's own reference counting frees a node the moment the
+ * scene graph lets go of it -- a title tearing its menu down to build the
+ * next scene does exactly that -- and the wrapper keeps naming freed memory
+ * whose stale bytes still look like the object.  Every later call through
+ * that wrapper reads plausible garbage, and the first setTransform on it
+ * self-destructs: the lazy matrix-block allocation is served FROM the freed
+ * host block and the matrix copy writes float 1.0 over the object's own
+ * parent word, which the invalidate that follows dereferences.  That was
+ * the entire race-start crash family, unfindable by any state gate because
+ * nothing was ever corrupt -- just dead.
+ *
+ * The cost is deliberate: CLDC has no finalization, so wrapped objects are
+ * pinned until the VM exits.  Correct and bounded beats freed and haunted.
+ */
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_Object3D_nAddRef()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gAddRef((M3GObject) handle);
+    }
+    KNI_ReturnVoid();
+}
+
+/*
  * private static native int nClassID(int handle);
  *
  * The m3gcore class id, which is what says which Java class an engine object
@@ -743,6 +774,158 @@ static int m3gHandleSane(jint handle, const char *who)
     return 0;
 }
 
+/*
+ * The stronger gate for the transform family.  The range test above keeps
+ * the engine from dereferencing outright garbage, but the crash that came
+ * back through it was a VALID arena pointer naming a non-Transformable:
+ * m3gSetTransform then writes sixteen floats over whatever neighbours that
+ * smaller object, and the float-1.0 pattern lands in some node's parent
+ * pointer for m3gInvalidateTransformable to walk into later.  Checking the
+ * engine's own class id turns that slow memory corruption into a log line
+ * naming the wrongly-typed class and the call that brought it.
+ */
+static int m3gTransformableOk(jint handle, const char *who)
+{
+    M3GClass cls;
+
+    if (!m3gHandleSane(handle, who)) {
+        return 0;
+    }
+    cls = m3gGetClass((M3GObject) handle);
+    switch (cls) {
+    case M3G_CLASS_CAMERA:
+    case M3G_CLASS_GROUP:
+    case M3G_CLASS_LIGHT:
+    case M3G_CLASS_MESH:
+    case M3G_CLASS_MORPHING_MESH:
+    case M3G_CLASS_SKINNED_MESH:
+    case M3G_CLASS_SPRITE:
+    case M3G_CLASS_WORLD:
+        /* The real poison, read off the disassembly of
+         * m3gInvalidateTransformable: its faulting +0x50 read is
+         * `lw a1,80(a3)` with a3 loaded from OFFSET 0 of the object -- the
+         * object's Interface pointer, used for the transform-cache lookup.
+         * The parent link is +0x3c and was never the problem; the class
+         * byte at +4 stays intact, which is how every earlier gate passed.
+         * One word, offset 0, of the very object handed in.  There is
+         * exactly one engine interface in this VM, so the check is exact:
+         * anything else there is corruption.  The log line carries the
+         * object's address -- object+0 is the write-breakpoint target. */
+        {
+            unsigned int iface = *(const unsigned int *)
+                ((const char *) (size_t) handle + 0);
+            if (iface != (unsigned int) (size_t) m3gPspPeekInterface()) {
+                extern void javacall_diag_log(const char *s)
+                    __attribute__((weak));
+                static int plogged;
+                if (plogged < 10 && javacall_diag_log != 0) {
+                    char line[144];
+                    plogged++;
+                    sprintf(line,
+                            "M3G: iface word poisoned: obj %u(0x%x)"
+                            " holds 0x%x class %d in %s\n",
+                            (unsigned int) handle, (unsigned int) handle,
+                            iface, (int) cls, who);
+                    javacall_diag_log(line);
+                }
+                return 0;
+            }
+        }
+        /* The self-poisoning found by disassembling m3gSetTransform: the
+         * transform matrix lives behind a lazily-allocated POINTER at
+         * +0x38, the copy writes 19 words through it and tail-jumps into
+         * the invalidate.  A corrupt pointer aimed at the object itself
+         * means one setTransform overwrites its own header with
+         * matrix[0]=1.0 and crashes reading it back -- in the same call,
+         * after every prior gate here has passed.  NULL is fine (the
+         * engine allocates); anything else must be an arena pointer that
+         * does not alias the object's own header. */
+        {
+            /* The copy through this pointer spans 0x4C bytes, so a pointer
+             * BELOW the object can still write forward into its header --
+             * the earlier inside-only alias window missed exactly that.
+             * Anything suspect is not skipped but NEUTRALISED: zeroing the
+             * slot makes the engine's own lazy path allocate a fresh block,
+             * so the game's transform still lands, the stale block leaks
+             * (once, logged), and nothing scribbles over live objects. */
+            /* The check that was lost in the shuffle: the parent link at
+             * +0x3c -- the exact word the invalidate walk loads first.
+             * An earlier probe walked +0x50 (a fused-JIT displacement red
+             * herring) and its replacement checked the interface word
+             * instead; the right offset was never gated on this path. */
+            unsigned int parent = *(const unsigned int *)
+                ((const char *) (size_t) handle + 0x3C);
+            if (!m3gPspArenaPointerOk((const void *) (size_t) parent)) {
+                extern void javacall_diag_log(const char *s)
+                    __attribute__((weak));
+                static int pplogged;
+                if (pplogged < 10 && javacall_diag_log != 0) {
+                    char line[144];
+                    pplogged++;
+                    sprintf(line,
+                            "M3G: parent poisoned: obj %u(0x%x) +0x3c"
+                            " holds 0x%x class %d in %s\n",
+                            (unsigned int) handle, (unsigned int) handle,
+                            parent, (int) cls, who);
+                    javacall_diag_log(line);
+                }
+                m3gPspArenaAuditNodes(m3gPspPeekInterface(), who);
+                return 0;
+            }
+
+            unsigned int *slot = (unsigned int *)
+                ((char *) (size_t) handle + 0x38);
+            unsigned int mtx = *slot;
+            if (mtx != 0
+                && (mtx < 0x08400000u || mtx >= 0x0C000000u
+                    || (mtx < (unsigned int) handle + 0x60u
+                        && mtx + 0x4Cu > (unsigned int) handle))) {
+                extern void javacall_diag_log(const char *s)
+                    __attribute__((weak));
+                static int mlogged;
+                if (mlogged < 10 && javacall_diag_log != 0) {
+                    char line[144];
+                    mlogged++;
+                    sprintf(line,
+                            "M3G: matrix ptr bogus: obj %u(0x%x) +0x38"
+                            " held 0x%x class %d in %s -- reset\n",
+                            (unsigned int) handle, (unsigned int) handle,
+                            mtx, (int) cls, who);
+                    javacall_diag_log(line);
+                }
+                *slot = 0;
+            }
+        }
+        return 1;
+    case M3G_CLASS_TEXTURE:
+        /* Textures skip the node walk in the engine, but the cache lookup
+         * through the interface word happens for them too. */
+        {
+            unsigned int iface = *(const unsigned int *)
+                ((const char *) (size_t) handle + 0);
+            if (iface != (unsigned int) (size_t) m3gPspPeekInterface()) {
+                return 0;
+            }
+        }
+        return 1;
+    default:
+        {
+            extern void javacall_diag_log(const char *s)
+                __attribute__((weak));
+            static int logged;
+            if (logged < 8 && javacall_diag_log != 0) {
+                char line[96];
+                logged++;
+                sprintf(line,
+                        "M3G: class %d not transformable in %s (0x%x)\n",
+                        (int) cls, who, (unsigned int) handle);
+                javacall_diag_log(line);
+            }
+        }
+        return 0;
+    }
+}
+
 /* private static native void nSetTransform(int handle, float[] matrix); */
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Transformable_nSetTransform()
@@ -752,7 +935,11 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
     M3GMatrix matrix;
     M3Gbool have;
 
-    if (!m3gHandleSane(handle, "setTransform")) {
+    /* TEMPORARY -- sweep at every setTransform too: the poison has shown
+     * up between a clean load-time sweep and this call. */
+    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "setTransform");
+
+    if (!m3gTransformableOk(handle, "setTransform")) {
         KNI_ReturnVoid();
     }
 
@@ -764,6 +951,29 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
 
     if (!have) {
         m3gIdentityMatrix(&matrix);
+    }
+
+    /* TEMPORARY -- the two-instruction window.  Every gate above passed
+     * with a clean parent and the engine still read poison back out of
+     * +0x3c inside this very call.  Capture the object's matrix pointer
+     * and parent AS THEY ARE at the call, after all KNI marshalling: when
+     * the crash follows, the last preST line in the log convicts either
+     * the marshalling (par already dirty here) or the engine's own copy
+     * through the logged mtx pointer. */
+    {
+        extern void javacall_diag_log(const char *s) __attribute__((weak));
+        static int stLogged;
+        if (stLogged < 200 && javacall_diag_log != 0) {
+            char line[144];
+            unsigned int mtx = *(const unsigned int *)
+                ((const char *) (size_t) handle + 0x38);
+            unsigned int par = *(const unsigned int *)
+                ((const char *) (size_t) handle + 0x3C);
+            stLogged++;
+            sprintf(line, "M3G: preST obj=0x%x mtx=0x%x par=0x%x stk=%p\n",
+                    (unsigned int) handle, mtx, par, (void *) &matrix);
+            javacall_diag_log(line);
+        }
     }
     m3gSetTransform((M3GTransformable) handle, &matrix);
     KNI_ReturnVoid();
@@ -777,7 +987,7 @@ Java_javax_microedition_m3g_Transformable_nGetTransform()
     jint handle = KNI_GetParameterAsInt(1);
     M3GMatrix matrix;
 
-    if (!m3gHandleSane(handle, "getTransform")) {
+    if (!m3gTransformableOk(handle, "getTransform")) {
         KNI_ReturnVoid();
     }
     m3gGetTransform((M3GTransformable) handle, &matrix);
@@ -819,7 +1029,7 @@ Java_javax_microedition_m3g_Transformable_nSetTranslation()
     m3gCall("Transformable.setTranslation", KNI_GetParameterAsInt(1));
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "setTranslation")) {
+    if (m3gTransformableOk(handle, "setTranslation")) {
         m3gSetTranslation((M3GTransformable) handle,
                           (M3Gfloat) KNI_GetParameterAsFloat(2),
                           (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -834,7 +1044,7 @@ Java_javax_microedition_m3g_Transformable_nTranslate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "translate")) {
+    if (m3gTransformableOk(handle, "translate")) {
         m3gTranslate((M3GTransformable) handle,
                      (M3Gfloat) KNI_GetParameterAsFloat(2),
                      (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -849,7 +1059,7 @@ Java_javax_microedition_m3g_Transformable_nSetScale()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "setScale")) {
+    if (m3gTransformableOk(handle, "setScale")) {
         m3gSetScale((M3GTransformable) handle,
                     (M3Gfloat) KNI_GetParameterAsFloat(2),
                     (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -864,7 +1074,7 @@ Java_javax_microedition_m3g_Transformable_nScale()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "scale")) {
+    if (m3gTransformableOk(handle, "scale")) {
         m3gScale((M3GTransformable) handle,
                  (M3Gfloat) KNI_GetParameterAsFloat(2),
                  (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -879,7 +1089,7 @@ Java_javax_microedition_m3g_Transformable_nSetOrientation()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "setOrientation")) {
+    if (m3gTransformableOk(handle, "setOrientation")) {
         m3gSetOrientation((M3GTransformable) handle,
                           (M3Gfloat) KNI_GetParameterAsFloat(2),
                           (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -895,7 +1105,7 @@ Java_javax_microedition_m3g_Transformable_nPreRotate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "preRotate")) {
+    if (m3gTransformableOk(handle, "preRotate")) {
         m3gPreRotate((M3GTransformable) handle,
                      (M3Gfloat) KNI_GetParameterAsFloat(2),
                      (M3Gfloat) KNI_GetParameterAsFloat(3),
@@ -911,7 +1121,7 @@ Java_javax_microedition_m3g_Transformable_nPostRotate()
 {
     jint handle = KNI_GetParameterAsInt(1);
 
-    if (m3gHandleSane(handle, "postRotate")) {
+    if (m3gTransformableOk(handle, "postRotate")) {
         m3gPostRotate((M3GTransformable) handle,
                       (M3Gfloat) KNI_GetParameterAsFloat(2),
                       (M3Gfloat) KNI_GetParameterAsFloat(3),

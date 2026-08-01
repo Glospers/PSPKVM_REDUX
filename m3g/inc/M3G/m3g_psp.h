@@ -400,6 +400,10 @@ void m3gPspArenaFree(void *ptr);
  */
 M3Gint m3gPspArenaVerify(void);
 
+/* TEMPORARY -- the poisoned-parent hunt; see m3g_psp_arena.c. */
+void   m3gPspArenaAuditNodes(const void *iface, const char *when);
+M3Gint m3gPspArenaPointerOk(const void *p);
+
 /*! \brief Copies out the arena counters.  Never fails. */
 void m3gPspArenaGetStats(M3GPspArenaStats *out);
 

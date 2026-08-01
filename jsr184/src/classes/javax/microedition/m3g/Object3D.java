@@ -215,10 +215,15 @@ public abstract class Object3D {
         return createWrapper(nClassID(handle), handle);
     }
 
-    /** Records this instance as the wrapper for its handle. */
+    /** Records this instance as the wrapper for its handle, and takes a
+     *  real engine reference so the engine can never free an object Java
+     *  can still name.  See nAddRef in m3g_object_kni.c: without this the
+     *  engine's refcounting frees scene nodes out from under wrappers and
+     *  every later call through them runs on stale memory. */
     void register() {
         if (handle != 0) {
             wrappers.put(new Integer(handle), this);
+            nAddRef(handle);
         }
     }
 
@@ -444,6 +449,7 @@ public abstract class Object3D {
 
     /** The m3gcore class id, i.e. which Java class a handle belongs in. */
     private static native int nClassID(int handle);
+    private static native void nAddRef(int handle);
 
     private static native int nAnimate(int handle, int time);
     private static native int nDuplicate(int handle);
