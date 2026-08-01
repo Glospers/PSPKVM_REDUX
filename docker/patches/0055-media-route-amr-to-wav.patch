@@ -1,0 +1,157 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index ce6035dd..1c28214e 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -337,7 +337,7 @@ javacall_result javacall_media_initialize(void) {
+         }
+     }
+ 
+-    max_patch_memory = 4*1024*1024;
++    max_patch_memory = 16*1024*1024;   /* freepats instruments are far richer than the old five-file set; at 4 MB the backing channels never load */
+ 
+     if(SDL_Init(SDL_INIT_AUDIO)==-1) {
+         javacall_printf("SDL_Init: %s\n", SDL_GetError());
+@@ -442,6 +442,22 @@ javacall_handle javacall_media_create(javacall_int64 playerId,
+     }
+ 
+     pszMime = javacall_UNICODEsToUtf8(mime, mimeLength);
++
++    /* TEMPORARY -- the gameplay-silence hunt: every create attempt with
++       its mime, straight to the diagnostic log (javacall_printf's console
++       channels do not reach the memory stick). */
++    {
++        extern void javacall_diag_log(const char *s) __attribute__((weak));
++        static int logged;
++        if (logged < 40 && javacall_diag_log != 0) {
++            char line[112];
++            logged++;
++            sprintf(line, "media: create mime=%.48s len=%ld\n",
++                    (pszMime != NULL) ? pszMime : "(null)", contentLength);
++            javacall_diag_log(line);
++        }
++    }
++
+     if (!strcmp(pszMime, JAVACALL_AUDIO_MIDI_MIME) ||
+     	  !strcmp(pszMime, JAVACALL_AUDIO_MIDI_MIME_2)) {
+     	 return create_midi(playerId, uri, uriLength, contentLength);
+@@ -451,9 +467,18 @@ javacall_handle javacall_media_create(javacall_int64 playerId,
+     } else if (!strcmp(pszMime, JAVACALL_AUDIO_MP3_MIME) ||
+          !strcmp(pszMime, JAVACALL_AUDIO_MP3_MIME_2)) {
+          return create_mp3(playerId, uri, uriLength, contentLength);
++    } else if (!strcmp(pszMime, JAVACALL_AUDIO_AMR_MIME) ||
++         !strcmp(pszMime, "audio/AMR")) {
++        /* No AMR codec exists anywhere in this stack; titles that ship
++           .amr effects (Deep 3D: alert, harpoon, explosion...) played
++           nothing.  The suite's .amr resources are transcoded to RIFF WAV
++           in place on the memory stick -- same names, same mime, WAVE
++           bytes -- so the mime routes to the WAV player, which reads the
++           bytes for what they are. */
++        return create_wav(playerId, uri, uriLength, contentLength);
+     }
+ 
+-    return NULL;    
++    return NULL;
+ }
+ 
+ /**
+@@ -736,6 +761,25 @@ long javacall_media_set_time(javacall_handle handle, long ms) {
+     	  return setmediatime_mp3((mp3_player_handle*)handle, ms);
+     }
+ 
++    if (((mmplayer_handle*)handle)->type == MEDIA_TYPE_WAVE) {
++        /* Titles rewind before every effect: stop, setMediaTime(0),
++           start.  A chunk always plays from its top, so seeking an idle
++           chunk to zero is trivially satisfied; a playing one is halted so
++           the next start replays from the top.  The old blanket -1 was the
++           second MediaException inside that idiom -- the failing stop was
++           the first -- and between the two of them no sound effect ever
++           reached start(). */
++        wav_player_handle* wp = (wav_player_handle*) handle;
++        if (ms == 0) {
++            if (wp->chunk && wp->channel >= 0) {
++                Mix_HaltChannel(wp->channel);
++                wp->channel = -1;
++            }
++            return 0;
++        }
++        return -1;
++    }
++
+     return -1;
+ }
+  
+@@ -2015,14 +2059,26 @@ static long buffer_wav(wav_player_handle* mp, const void* buffer, long length, l
+     		chunk=Mix_LoadWAV(mp->filename);
+     	}
+     	
++   	{
++       	extern void javacall_diag_log(const char *s) __attribute__((weak));
++       	static int logged;
++       	if (logged < 24 && javacall_diag_log != 0) {
++       	    char line[128];
++       	    logged++;
++       	    sprintf(line, "media: wav endbuf len=%ld chunk=%p err=%.48s\n",
++       	            mp->buffered_len, (void *) chunk,
++       	            (chunk == NULL) ? Mix_GetError() : "-");
++       	    javacall_diag_log(line);
++       	}
++    	}
+    	if(!chunk) {
+        	javacall_printf("Mix_LoadWAV(): %s\n", Mix_GetError());
+        	// this might be a critical error...
+        	return -1;
+     	}
+-    
++
+     	mp->chunk = chunk;
+-    	
++
+     	return 0;
+     }
+     
+@@ -2089,6 +2145,17 @@ static javacall_result start_wav(wav_player_handle* mp) {
+         chunk = mp->chunk;
+     }
+     
++    {
++        extern void javacall_diag_log(const char *s) __attribute__((weak));
++        static int logged;
++        if (logged < 24 && javacall_diag_log != 0) {
++            char line[96];
++            logged++;
++            sprintf(line, "media: start_wav chunk=%p ch=%d\n",
++                    (void *) chunk, mp->channel);
++            javacall_diag_log(line);
++        }
++    }
+     if (chunk) {
+     	javacall_printf("Mix_PlayChannel %d...\n", mp->channel);
+     	if ((mp->channel = Mix_PlayChannel(mp->channel, chunk, 0)) == -1) {
+@@ -2109,7 +2176,13 @@ static javacall_result pause_wav(wav_player_handle* mp) {
+     	mp->paused = 1;
+     	return JAVACALL_OK;
+     } else {
+-       return JAVACALL_FAIL;
++       /* Nothing is playing.  MMAPI requires stop() on a PREFETCHED player
++          to succeed as a no-op, and javacall_media_stop routes here; the
++          old JAVACALL_FAIL became a MediaException inside the standard
++          stop-rewind-start idiom every title uses, so no effect ever got
++          as far as start().  Eight decoded, ready chunks and zero starts
++          in the log, from one wrong return code. */
++       return JAVACALL_OK;
+     }
+ 
+ }
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/psp_mmapi.h b/javacall/implementation/psp_mips/jsr135_mmapi/psp_mmapi.h
+index 50d94b2f..903f130b 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/psp_mmapi.h
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/psp_mmapi.h
+@@ -11,7 +11,7 @@
+ static const javacall_utf16 midi_cfg_fn[] = {'t','i','m','i','d','i','t','y','.','c','f','g'};
+ 
+ #define TMP_MUSIC_FILENAME_LEN_MAX 64
+-#define DEFAULT_WAVE_BUFFER_LENGTH (64*1024)
++#define DEFAULT_WAVE_BUFFER_LENGTH (128*1024)
+ #define CHANNEL_NUM 16
+ 
+ #define MEDIA_TYPE_MIDI  1
