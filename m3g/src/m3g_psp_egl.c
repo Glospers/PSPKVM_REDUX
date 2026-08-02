@@ -285,6 +285,13 @@ static EGLint m3gPspCeilPow2(EGLint n)
     return p;
 }
 
+/* The rounded (power-of-two) height of the most recent pbuffer surface.
+ * The read-back wrap needs it to re-aim GL_PACK_INVERT_MESA reads: pspgl's
+ * invert path indexes framebuffer rows from the top, so a partial-height
+ * read must start at (surfaceHeight - y - height) to cover the same rows
+ * the normal (flipped) path returns. */
+int m3gPspSurfaceHeight;
+
 EGLSurface __wrap_eglCreatePbufferSurface (EGLDisplay dpy, EGLConfig config,
                                            const EGLint *attrib_list)
 {
@@ -325,6 +332,13 @@ EGLSurface __wrap_eglCreatePbufferSurface (EGLDisplay dpy, EGLConfig config,
         unsigned long before = __pspgl_vidmem_avail();
 
         s = __real_eglCreatePbufferSurface(dpy, config, rounded);
+
+        /* Only the render target's surface matters; the engine also creates
+         * tiny helper pbuffers (16x16, 2x2) during loads which must not
+         * overwrite the recorded height. */
+        if (s != 0 && h >= 256) {
+            m3gPspSurfaceHeight = (int) h;
+        }
 
         if (logged < 4 && javacall_diag_log != 0) {
             char line[160];
@@ -509,10 +523,26 @@ EGLBoolean __wrap_eglMakeCurrent(EGLDisplay dpy, EGLSurface draw,
     EGLBoolean result = __real_eglMakeCurrent(dpy, draw, read, ctx);
 
     if (result && ctx != EGL_NO_CONTEXT) {
+        /*
+         * Re-dirty pspgl's register cache so state clobbered by PSPKVM's
+         * own 2D GE lists gets re-sent -- but ONLY through pspgl's own
+         * context-switch mask.  The mask exists precisely to exclude the
+         * action-trigger registers (PRIM, JUMP/CALL/RET, CLUT_LOAD, the
+         * transfer kicks): pspgl records the last value of every command
+         * it emits, so marking a trigger "touched" makes the next state
+         * flush REPLAY it.  Marking all 256 registers here re-issued the
+         * previous draw's PRIM -- with the previous draw's vertex
+         * pointers but the NEXT draw's freshly-flushed matrices -- once
+         * per mid-frame make-current: every object in view intermittently
+         * re-drawn wearing its neighbour's texture matrix (the
+         * shapeshifting ship, the station noise face, the doubled
+         * harpoon).
+         */
+        extern unsigned int __pspgl_context_register[8];
         unsigned int *touched = (unsigned int *) ((char *) ctx + 1032);
         int i;
         for (i = 0; i < 8; ++i) {
-            touched[i] = 0xFFFFFFFFu;
+            touched[i] |= __pspgl_context_register[i];
         }
 
         /*
