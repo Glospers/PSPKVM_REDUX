@@ -1,0 +1,102 @@
+diff --git a/midp/src/lowlevelui/image/img_putpixel/native/imgj_imagedatafactory_kni.c b/midp/src/lowlevelui/image/img_putpixel/native/imgj_imagedatafactory_kni.c
+index ff925af9..da9b6ef6 100644
+--- a/midp/src/lowlevelui/image/img_putpixel/native/imgj_imagedatafactory_kni.c
++++ b/midp/src/lowlevelui/image/img_putpixel/native/imgj_imagedatafactory_kni.c
+@@ -65,13 +65,30 @@
+ #define RGB24TORGB16(x) (((( x ) & 0x00F80000) >> 8) + \
+                              ((( x ) & 0x0000FC00) >> 5) + \
+                              ((( x ) & 0x000000F8) >> 3) )
+-
+ /** Convert 16-bit (565) color to 24-bit RGB color */
+ #define RGB16TORGB24(x) ( ((x & 0x001F) << 3) | ((x & 0x001C) >> 2) |\
+                               ((x & 0x07E0) << 5) | ((x & 0x0600) >> 1) |\
+                               ((x & 0xF800) << 8) | ((x & 0xE000) << 3) )
+ #endif
+ 
++/*
++ * Keep near-white distinct from true white across the 565 round trip.
++ * getRGB reconstructs by bit replication, so a channel of 248..254
++ * (252..254 for green) would read back as exactly 255; games colorkey
++ * on pure opaque white and rely on fills at 253,253,253 staying
++ * distinct.  Nudge the top bucket down one code before truncation.
++ */
++static jint imgj_preserve_whitekey(jint rgb) {
++    jint r = (rgb >> 16) & 0xff;
++    jint g = (rgb >>  8) & 0xff;
++    jint b =  rgb        & 0xff;
++    if (r >= 0xf8 && r != 0xff) r = 0xf7;
++    if (g >= 0xfc && g != 0xff) g = 0xfb;
++    if (b >= 0xf8 && b != 0xff) b = 0xf7;
++    return (rgb & 0xff000000) | (r << 16) | (g << 8) | b;
++}
++#define PRESERVE_WHITEKEY(x) imgj_preserve_whitekey(x)
++
+ /**
+  * Create native representation for a image.
+  *
+@@ -824,12 +841,12 @@ KNIDECL(javax_microedition_lcdui_ImageDataFactory_loadRGB) {
+ 
+         if (alphaData != NULL) {
+             for (i = 0; i < len; i++) {
+-                pixelData[i] = RGB24TORGB16(rgbBuffer[i]);
++                pixelData[i] = RGB24TORGB16(PRESERVE_WHITEKEY(rgbBuffer[i]));
+                 alphaData[i] = (rgbBuffer[i] >> 24) & 0x00ff;
+             }
+         } else {
+             for (i = 0; i < len; i++) {
+-                pixelData[i] = RGB24TORGB16(rgbBuffer[i]);
++                pixelData[i] = RGB24TORGB16(PRESERVE_WHITEKEY(rgbBuffer[i]));
+             }
+         }
+     }
+diff --git a/midp/src/lowlevelui/image_decode/reference/native/imgdcd_image_util.c b/midp/src/lowlevelui/image_decode/reference/native/imgdcd_image_util.c
+index f06ffa33..a1cdb98e 100644
+--- a/midp/src/lowlevelui/image_decode/reference/native/imgdcd_image_util.c
++++ b/midp/src/lowlevelui/image_decode/reference/native/imgdcd_image_util.c
+@@ -47,6 +47,20 @@
+ #define IMGDCD_RGB2PIXEL(r, g, b) ( b +(g << 5)+ (r << 11) )
+ #endif
+ 
++/*
++ * Quantize an 8-bit channel to 5/6 bits, reserving the top code for a
++ * true 255.  Image.getRGB reconstructs by bit replication, so any
++ * channel in the top bucket (248..255 / 252..255) would otherwise read
++ * back as exactly 255.  Games colorkey on pure opaque white
++ * (0xFFFFFFFF -> transparent) and park visible fills a hair below it
++ * (253,253,253); collapsing the bucket keys those fills out too.
++ * Near-white loses one code (247/251 replicated) -- invisible.
++ */
++#define IMGDCD_Q5(c) ((((c) & 0xff) >= 0xf8 && ((c) & 0xff) != 0xff) \
++                      ? 0x1e : (((c) & 0xff) >> 3))
++#define IMGDCD_Q6(c) ((((c) & 0xff) >= 0xfc && ((c) & 0xff) != 0xff) \
++                      ? 0x3e : (((c) & 0xff) >> 2))
++
+ typedef struct _imgDst {
+   imageDstData   super;
+ 
+@@ -185,9 +199,9 @@ sendPixelsColor(imageDstPtr self, int y, uchar *pixels, int pixelType) {
+   if ((pixelType == CT_COLOR) ||              /* color triplet */
+       (pixelType == (CT_COLOR | CT_ALPHA))) { /* color triplet with alpha */
+     for (x = 0; x < p->width; ++x) {
+-      int r = pixels[0] >> 3;
+-      int g = pixels[1] >> 2;
+-      int b = pixels[2] >> 3;
++      int r = IMGDCD_Q5(pixels[0]);
++      int g = IMGDCD_Q6(pixels[1]);
++      int b = IMGDCD_Q5(pixels[2]);
+       int alpha = 0xff;
+ 
+       if (pixelType & CT_ALPHA) {
+@@ -212,9 +226,9 @@ sendPixelsColor(imageDstPtr self, int y, uchar *pixels, int pixelType) {
+ 
+       int color = p->cmap[cmapIndex];
+ 
+-      int r = ((color >> 16) & 0xff) >> 3;
+-      int g = ((color >>  8) & 0xff) >> 2;
+-      int b = ((color >>  0) & 0xff) >> 3;
++      int r = IMGDCD_Q5((color >> 16) & 0xff);
++      int g = IMGDCD_Q6((color >>  8) & 0xff);
++      int b = IMGDCD_Q5((color >>  0) & 0xff);
+ 
+       int alpha = 0xff;
+ 

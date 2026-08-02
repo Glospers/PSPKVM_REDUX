@@ -365,10 +365,16 @@ static int m3gTargetBuffer(jobject graphics, gxj_screen_buffer *out)
  * own schedule, so the engine could be writing a frame into it mid-blit.  A
  * private buffer ends that too.
  */
-static unsigned short *s_stage;
+/* The stage is RGBA8, not 565: the engine's blit of prior target content
+ * into the frame -- the path 2D-under-3D and frame erasure both live on --
+ * has no 565 case and drops the whole copy on the floor, and its 565
+ * readback packs red into the wrong end for the PSP.  See the note at
+ * m3gPspBindMemoryTarget.  The conversions live here, at the two spots the
+ * pixels cross between MIDP's buffer and the engine's. */
+static unsigned int *s_stage;
 static int s_stageCapacity;
 
-static unsigned short *m3gStageBuffer(int width, int height)
+static unsigned int *m3gStageBuffer(int width, int height)
 {
     int need = width * height;
 
@@ -376,10 +382,62 @@ static unsigned short *m3gStageBuffer(int width, int height)
         free(s_stage);
         /* 64: the dcache line, so the GE copy and the CPU never split a
          * line; anything >= 16 takes the GE path. */
-        s_stage = (unsigned short *) memalign(64, (size_t) need * 2);
+        s_stage = (unsigned int *) memalign(64, (size_t) need * 4);
         s_stageCapacity = (s_stage != NULL) ? need : 0;
     }
     return s_stage;
+}
+
+/* TEMPORARY -- the backdrop fill 0x85541F lands in the 565 buffer as
+ * exactly 0x1AB0 (PSP order).  Counting it at bind (seed side) and again
+ * at release (delivered side) says whether the warm backdrop is present
+ * before the 3D and whether it survived under it. */
+static int m3gCountWarm(const unsigned short *p, int count)
+{
+    int i, n = 0;
+    for (i = 0; i < count; i += 7) {
+        if (p[i] == 0x1AB0) {
+            n++;
+        }
+    }
+    return n;
+}
+
+/* MIDP 565 (PSP order: red low) -> the engine's RGBA8 (byte order R,G,B,A,
+ * which is the word 0xAABBGGRR on this little-endian CPU).  Bit-replicated
+ * so white stays white. */
+static void m3gStageSeed(unsigned int *dst, const unsigned short *src, int count)
+{
+    int i;
+    for (i = 0; i < count; ++i) {
+        unsigned int v = src[i];
+        unsigned int r = (v & 0x1F);
+        unsigned int g = (v >> 5) & 0x3F;
+        unsigned int b = (v >> 11) & 0x1F;
+        r = (r << 3) | (r >> 2);
+        g = (g << 2) | (g >> 4);
+        b = (b << 3) | (b >> 2);
+        dst[i] = 0xFF000000u | (b << 16) | (g << 8) | r;
+    }
+}
+
+/* The engine's RGBA8 back into MIDP's PSP-order 565.
+ *
+ * Measured, not assumed: pspgl's glReadPixels hands the frame back with red
+ * and blue exchanged (the 16-bit pbuffer is PSP-order, red low, and the
+ * unpack reads it GL-order), while its glTexImage2D upload direction is
+ * true-order -- which is why the seed above converts straight and this one
+ * compensates.  The old all-565 pipeline was colour-correct only because
+ * m3gcore's own GL-order 565 packing swapped everything a second time. */
+static void m3gStageDeliver(unsigned short *dst, const unsigned int *src, int count)
+{
+    int i;
+    for (i = 0; i < count; ++i) {
+        unsigned int w = src[i];
+        dst[i] = (unsigned short) (((w & 0x00F80000u) >> 19)
+                                 | ((w & 0x0000FC00u) >> 5)
+                                 | ((w & 0x000000F8u) << 8));
+    }
 }
 
 /*
@@ -420,12 +478,31 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
 
         KNI_GetParameterAsObject(1, target);
 
-        if (!m3gTargetBuffer(target, &dst)) {
+        int resolved = m3gTargetBuffer(target, &dst);
+        if (!resolved) {
             /* Not a Graphics, or one with nothing behind it: fall back to the
              * display, which is what this always used to do. */
             dst.width     = screenWidth;
             dst.height    = screenHeight;
             dst.pixelData = (gxj_pixel_type *) pixels;
+        }
+
+        /* TEMPORARY -- how did the target resolve?  r: 0 fell back, 1 image
+         * or screen via m3gTargetBuffer; img: does the Graphics carry an
+         * Image; the dims are what the seed and delivery will use. */
+        {
+            static int bindDiagLeft = 6;
+            if (bindDiagLeft > 0 && javacall_diag_log != 0) {
+                char line[96];
+                /* Only a real Graphics may be read as one; resolved implies
+                 * the class check in m3gTargetBuffer passed. */
+                int hasImg = resolved
+                    ? (M3G_IMAGEDATA_OF(target) != NULL) : -1;
+                --bindDiagLeft;
+                sprintf(line, "M3G: bindres r=%d img=%d %dx%d\n",
+                        resolved, hasImg, dst.width, dst.height);
+                javacall_diag_log(line);
+            }
         }
 
         /* The screen is the largest surface anything renders at. */
@@ -444,14 +521,27 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
             m3gProbe("seed", (const unsigned short *) dst.pixelData,
                      width, height);
 
+            /* TEMPORARY -- warm census, seed side. */
+            {
+                static int warmSeedLeft = 40;
+                if (warmSeedLeft > 0 && javacall_diag_log != 0) {
+                    char line[64];
+                    --warmSeedLeft;
+                    sprintf(line, "M3G: warm s=%d\n",
+                            m3gCountWarm((const unsigned short *) dst.pixelData,
+                                         width * height));
+                    javacall_diag_log(line);
+                }
+            }
+
             /* Seed the frame with the target's current content: unless the
              * OVERWRITE hint is set the engine composes the 3D over it, which
              * is how 2D drawn before bindTarget shows through. */
-            memcpy(stage, dst.pixelData,
-                   (size_t) width * (size_t) height * sizeof(unsigned short));
+            m3gStageSeed(stage, (const unsigned short *) dst.pixelData,
+                         width * height);
 
             result = m3gPspBindMemoryTarget(stage, width, height,
-                                            width * (M3Gint) sizeof(unsigned short),
+                                            width * (M3Gint) sizeof(unsigned int),
                                             depthBuffer, hints);
         }
     }
@@ -541,8 +631,6 @@ Java_javax_microedition_m3g_Graphics3D_nRelease()
             width  = (dst.width  > screenWidth)  ? screenWidth  : dst.width;
             height = (dst.height > screenHeight) ? screenHeight : dst.height;
 
-            m3gProbe("frame", s_stage, width, height);
-
             /* TEMPORARY -- the far side of the read-back conversion; pairs
              * with the raw565 dump in m3g/src/m3g_psp_gl.c.  Together they
              * say whether white was read from the GE or manufactured by the
@@ -554,8 +642,8 @@ Java_javax_microedition_m3g_Graphics3D_nRelease()
                     int mid = (height / 2) * width + width / 2;
                     once = 1;
                     sprintf(line,
-                            "M3G: stage565 [0]=%04x [1]=%04x [mid]=%04x "
-                            "[mid+1]=%04x [top]=%04x\n",
+                            "M3G: stage8888 [0]=%08x [1]=%08x [mid]=%08x "
+                            "[mid+1]=%08x [top]=%08x\n",
                             s_stage[0], s_stage[1],
                             s_stage[mid], s_stage[mid + 1],
                             s_stage[(size_t) (height - 1) * width + width / 2]);
@@ -563,8 +651,24 @@ Java_javax_microedition_m3g_Graphics3D_nRelease()
                 }
             }
 
-            memcpy(dst.pixelData, s_stage,
-                   (size_t) width * (size_t) height * sizeof(unsigned short));
+            m3gStageDeliver((unsigned short *) dst.pixelData, s_stage,
+                            width * height);
+
+            /* TEMPORARY -- warm census, delivered side. */
+            {
+                static int warmFrameLeft = 40;
+                if (warmFrameLeft > 0 && javacall_diag_log != 0) {
+                    char line[64];
+                    --warmFrameLeft;
+                    sprintf(line, "M3G: warm f=%d\n",
+                            m3gCountWarm((const unsigned short *) dst.pixelData,
+                                         width * height));
+                    javacall_diag_log(line);
+                }
+            }
+
+            m3gProbe("frame", (const unsigned short *) dst.pixelData,
+                     width, height);
         }
     }
     KNI_EndHandles();

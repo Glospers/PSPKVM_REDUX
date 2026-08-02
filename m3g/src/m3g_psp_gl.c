@@ -36,6 +36,7 @@
  */
 
 #include <GLES/gl.h>
+#include <stdlib.h>     /* calloc/free -- the NULL-data TexImage shim */
 
 /*----------------------------------------------------------------------
  * pspgl entry points forwarded to
@@ -701,8 +702,23 @@ void __wrap_glTexImage2D(GLenum target, GLint level, GLint internalformat,
                          GLsizei width, GLsizei height, GLint border,
                          GLenum format, GLenum type, const void *pixels)
 {
+    /* The engine's frame blit (m3gBlitFrameBufferPixels2) allocates its tile
+     * textures with a NULL data pointer and fills them with TexSubImage
+     * afterwards -- desktop-GL manners that pspgl does not promise to have.
+     * Hand it real (zeroed) storage so the allocation always happens. */
+    void *zeroed = NULL;
+    if (pixels == NULL && width > 0 && height > 0
+        && type == GL_UNSIGNED_BYTE
+        && (format == GL_RGBA || format == GL_RGB)) {
+        int bpp = (format == GL_RGBA) ? 4 : 3;
+        zeroed = calloc((size_t) width * (size_t) height, (size_t) bpp);
+        if (zeroed != NULL) {
+            pixels = zeroed;
+        }
+    }
     __real_glTexImage2D(target, level, internalformat, width, height,
                         border, format, type, pixels);
+    free(zeroed);
     if (level == 0) {
         m3gPspTexLog("tex", (unsigned int) internalformat,
                      (unsigned int) format, (unsigned int) type,
@@ -812,6 +828,28 @@ static void m3gCvtShort2ToFloat2(void *to, const void *from, const void *a)
     d[0] = s[0]; d[1] = s[1];
 }
 
+/* Two-component POSITIONS.  The engine's meshes are always xyz, but its
+ * frame blit (m3gBlitFrameBufferPixels2) draws its tile quads with
+ * glVertexPointer(2, GL_SHORT, ...) -- and promoting those with the
+ * three-component converter reads the next vertex's x as this one's z and
+ * walks off stride: every quad degenerates and the blit vanishes, which
+ * showed up as "seed full of backdrop, delivered frame none of it". */
+static void m3gCvtShort2ToFloat3(void *to, const void *from, const void *a)
+{
+    const short *s = (const short *) from;
+    float *d = (float *) to;
+    (void) a;
+    d[0] = s[0]; d[1] = s[1]; d[2] = 0.0f;
+}
+
+static void m3gCvtByte2ToFloat3(void *to, const void *from, const void *a)
+{
+    const signed char *s = (const signed char *) from;
+    float *d = (float *) to;
+    (void) a;
+    d[0] = s[0]; d[1] = s[1]; d[2] = 0.0f;
+}
+
 static void m3gCvtByte2ToFloat2(void *to, const void *from, const void *a)
 {
     const signed char *s = (const signed char *) from;
@@ -866,8 +904,18 @@ void __wrap___pspgl_ge_vertex_fmt(void *ctx,
         unsigned t = (hw >> 7) & 3;
         if (t == 1 || t == 2) {
             struct m3gPspGlAttrib *attr = &vfmt->attribs[attrIndex];
-            attr->convert = (void *) ((t == 1) ? m3gCvtByte3ToFloat3
-                                               : m3gCvtShort3ToFloat3);
+            /* The GL-side component count lives in the varray struct the
+             * attrib points back to: size at +4, like the native flag the
+             * lines below poke at +16 (offsets verified against libGL.a). */
+            int glSize = *(int *) ((unsigned char *) attr->array + 4);
+            if (glSize == 2) {
+                attr->convert = (void *) ((t == 1) ? m3gCvtByte2ToFloat3
+                                                   : m3gCvtShort2ToFloat3);
+            }
+            else {
+                attr->convert = (void *) ((t == 1) ? m3gCvtByte3ToFloat3
+                                                   : m3gCvtShort3ToFloat3);
+            }
             attr->size = 3 * 4;
             *((unsigned char *) attr->array + 16) = 0;
             hw = (hw & ~(3u << 7)) | (3u << 7);

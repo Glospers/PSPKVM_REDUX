@@ -149,7 +149,7 @@ M3Gint m3gPspBindMemoryTarget(void *pixels,
     M3Gbitmask bufferBits;
 
     if (pixels == NULL || width <= 0 || height <= 0
-        || strideBytes < width * 2) {
+        || strideBytes < width * 4) {
         return M3G_PSP_ERR_INVALID;
     }
     if (s_bound) {
@@ -185,10 +185,25 @@ M3Gint m3gPspBindMemoryTarget(void *pixels,
      * and a non-zero value makes m3gQueryEGLConfig add EGL_MATCH_NATIVE_PIXMAP
      * to the attribute list -- which pspgl's eglChooseConfig rejects outright,
      * leaving m3gcore to read an uninitialised config count. */
+    /* RGBA8, not the RGB565 the MIDP screen actually is.  Two reasons, both
+     * discovered the hard way:
+     *   - the engine's blit of the target's prior content INTO the frame
+     *     (m3gUpdateBackBuffer, the path that makes 2D show through under a
+     *      Background with colour clear disabled) silently drops formats
+     *     m3gGetGLFormat does not know, and M3G_RGB565 is one of them
+     *     (m3gcore/src/m3g_image.inl:78, no 565 case).  This title clears
+     *     depth-only every frame and paints its sky as 2D underneath, so
+     *     that blit is the whole ballgame -- and its absence also meant
+     *     nothing ever erased the previous frame: the ghosting.
+     *   - m3gConvertPixels packs 565 with red in the high bits; the PSP
+     *     framebuffer wants red low, so every readback frame came out with
+     *     red and blue exchanged.
+     * The KNI layer converts 565<->RGBA8 at bind and release, where the
+     * byte order is under our control. */
     m3gBindMemoryTarget(ctx,
                         pixels,
                         (M3Guint) width, (M3Guint) height,
-                        M3G_RGB565,
+                        M3G_RGBA8,
                         (M3Guint) strideBytes,
                         0);
 

@@ -1,0 +1,44 @@
+diff --git a/midp/src/lowlevelui/graphics/gx_putpixel/native/gxj_graphics.c b/midp/src/lowlevelui/graphics/gx_putpixel/native/gxj_graphics.c
+index f0b16f52..3559ccdb 100644
+--- a/midp/src/lowlevelui/graphics/gx_putpixel/native/gxj_graphics.c
++++ b/midp/src/lowlevelui/graphics/gx_putpixel/native/gxj_graphics.c
+@@ -30,6 +30,8 @@
+ #include <gx_graphics.h>
+ #include <gxapi_constants.h>
+ 
++#include <stdio.h>      /* TEMPORARY -- sprintf for the fill census */
++
+ #include "gxj_intern_graphics.h"
+ #include "gxj_intern_putpixel.h"
+ #include "gxj_intern_image.h"
+@@ -1191,6 +1193,30 @@ gx_fill_rect(int color, const jshort *clip,
+ 
+   gxj_pixel_type pixelColor = GXJ_RGB24TORGB16(color);
+   gxj_screen_buffer screen_buffer;
++
++  /* TEMPORARY -- backdrop-band census.  The sky and water bands are the
++   * only large rectangles filled during play; logging their colours shows
++   * what the game computes for the radiation glow without guessing from
++   * bytecode.  Deduped against the last line, budgeted, screen-only. */
++  {
++      extern void javacall_diag_log(const char *s) __attribute__((weak));
++      static int budget = 300;
++      static int lastColor = -1;
++      static int lastY = -1;
++      if (javacall_diag_log != 0 && budget > 0
++          && width >= 100 && (height >= 30 || (y & 31) == 0)
++          && (((color & 0xFFFFFF) != lastColor) || y != lastY)) {
++          char line[96];
++          lastColor = color & 0xFFFFFF;
++          lastY = y;
++          --budget;
++          sprintf(line, "FILL%c %06x at %d,%d %dx%d\n",
++                  (dst == NULL) ? 's' : 'i',
++                  (unsigned) (color & 0xFFFFFF), x, y, width, height);
++          javacall_diag_log(line);
++      }
++  }
++
+   const jshort clipX1 = clip[0];
+   const jshort clipY1 = clip[1];
+   const jshort clipX2 = clip[2];
