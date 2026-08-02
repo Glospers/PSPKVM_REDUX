@@ -70,6 +70,34 @@ find "$SRC" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 rm -f "$SRC"/midp/build/javacall_psp/output/obj/mips/ROMImage.o \
       "$SRC"/midp/build/javacall_psp/output/bin/mips/libmidp.a
 
+# --- 0) libGL.a (pspgl) rebuilt from source when provided --------------------
+# The toolchain ships pspgl as a prebuilt libGL.a whose lazy VFPU-cached matrix
+# flush delivers stale GE texture matrices under m3gcore's workload (per-draw
+# adjust changes never mark the stack dirty, and the adjust fold drops the
+# cached top-of-stack from the VFPU keepset mid-flush). When a pspgl source
+# tree is mounted at /work/pspgl, rebuild libGL.a with the fixes from
+# /work/patches-pspgl and install it over the toolchain copy so the final EBOOT
+# link picks it up.
+PSPGL_SRC="${PSPKVM_PSPGL:-/work/pspgl}"
+PSPGL_PATCHES="${PSPKVM_PSPGL_PATCHES:-/work/patches-pspgl}"
+if [ -d "$PSPGL_SRC" ]; then
+  echo ">> [0/3] rebuilding libGL.a from pspgl source"
+  rm -rf /tmp/pspgl-build
+  cp -R "$PSPGL_SRC" /tmp/pspgl-build
+  if [ -d "$PSPGL_PATCHES" ]; then
+    shopt -s nullglob
+    for p in "$PSPGL_PATCHES"/*.patch; do
+      echo ">> applying pspgl patch: $(basename "$p")"
+      patch -p1 -d /tmp/pspgl-build < "$p"
+    done
+    shopt -u nullglob
+  fi
+  mkdir -p /tmp/pspgl-build/.deps
+  make -C /tmp/pspgl-build libGL.a -j"$(nproc)"
+  cp -f /tmp/pspgl-build/libGL.a "$PSPDEV/psp/lib/libGL.a"
+  echo ">> libGL.a installed to $PSPDEV/psp/lib"
+fi
+
 # --- 1) libm3g.a (the JSR 184 engine) ---------------------------------------
 # Built from two trees that are kept apart on purpose:
 #

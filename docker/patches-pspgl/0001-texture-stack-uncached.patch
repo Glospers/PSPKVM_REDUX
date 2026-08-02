@@ -1,0 +1,435 @@
+diff --git a/glLoadIdentity.c b/glLoadIdentity.c
+index 0091255..82c92dc 100644
+--- a/glLoadIdentity.c
++++ b/glLoadIdentity.c
+@@ -1,6 +1,7 @@
+ #include <pspvfpu.h>
+ 
+ #include "pspgl_internal.h"
++#include "pspgl_matrix.h"
+ 
+ const GLfloat __pspgl_identity[] __attribute__((aligned(VFPU_ALIGNMENT))) = {
+ 	1.0, 0.0, 0.0, 0.0,
+@@ -15,6 +16,11 @@ void glLoadIdentity (void)
+ 	struct pspgl_matrix_stack *stk = c->current_matrix_stack;
+ 	struct pspgl_matrix *mat = c->current_matrix;
+ 
++	if (__pspgl_matrix_nocache(c, stk)) {
++		__pspgl_matrix_mem_load(stk, NULL);
++		return;
++	}
++
+ 	if (mat->flags & MF_IDENTITY)
+ 		return;
+ 
+diff --git a/glLoadMatrixf.c b/glLoadMatrixf.c
+index 39f477d..001138a 100644
+--- a/glLoadMatrixf.c
++++ b/glLoadMatrixf.c
+@@ -8,6 +8,11 @@ void glLoadMatrixf (const GLfloat *m)
+ 	struct pspgl_matrix_stack *stk = pspgl_curctx->current_matrix_stack;
+ 	struct pspgl_matrix *mat = pspgl_curctx->current_matrix;
+ 
++	if (__pspgl_matrix_nocache(pspgl_curctx, stk)) {
++		__pspgl_matrix_mem_load(stk, m);
++		return;
++	}
++
+ 	assert(stk->flags & MF_VFPU);
+ 
+ 	pspvfpu_use_matrices(pspgl_curctx->vfpu_context, VFPU_STACKTOP, 0);
+diff --git a/glMultMatrixf.c b/glMultMatrixf.c
+index f7803b5..aac6ee2 100644
+--- a/glMultMatrixf.c
++++ b/glMultMatrixf.c
+@@ -1,6 +1,7 @@
+ #include <pspvfpu.h>
+ 
+ #include "pspgl_internal.h"
++#include "pspgl_matrix.h"
+ 
+ 
+ void glMultMatrixf (const GLfloat *m)
+@@ -9,6 +10,11 @@ void glMultMatrixf (const GLfloat *m)
+ 	struct pspgl_matrix_stack *stk = c->current_matrix_stack;
+ 	struct pspgl_matrix *mat = c->current_matrix;
+ 
++	if (__pspgl_matrix_nocache(c, stk)) {
++		__pspgl_matrix_mem_mult(stk, m);
++		return;
++	}
++
+ 	if (!(stk->flags & MF_DISABLED))
+ 		stk->flags |= MF_DIRTY;
+ 
+diff --git a/glPopMatrix.c b/glPopMatrix.c
+index e424ad6..e02d621 100644
+--- a/glPopMatrix.c
++++ b/glPopMatrix.c
+@@ -8,6 +8,16 @@ void glPopMatrix (void)
+ 	struct pspgl_context *c = pspgl_curctx;
+ 	struct pspgl_matrix_stack *curstk = c->current_matrix_stack;
+ 
++	if (__pspgl_matrix_nocache(c, curstk)) {
++		if (unlikely(curstk->depth == 0))
++			goto out_error;
++
++		c->current_matrix = &curstk->stack[--curstk->depth];
++		if (!(curstk->flags & MF_DISABLED))
++			curstk->flags |= MF_DIRTY;
++		return;
++	}
++
+ 	assert(curstk->flags & MF_VFPU);
+ 
+ 	if (unlikely(curstk->depth == 0))
+diff --git a/glPushMatrix.c b/glPushMatrix.c
+index e5335d7..e64e83a 100644
+--- a/glPushMatrix.c
++++ b/glPushMatrix.c
+@@ -10,6 +10,19 @@ void glPushMatrix (void)
+ 	struct pspgl_matrix_stack *curstk = c->current_matrix_stack;
+ 	unsigned flags;
+ 
++	if (__pspgl_matrix_nocache(c, curstk)) {
++		struct pspgl_matrix *cur = c->current_matrix;
++
++		if (unlikely(++curstk->depth == curstk->limit))
++			goto out_error;
++
++		memcpy(curstk->stack[curstk->depth].mat, cur->mat,
++		       sizeof(cur->mat));
++		curstk->stack[curstk->depth].flags = cur->flags;
++		c->current_matrix = &curstk->stack[curstk->depth];
++		return;
++	}
++
+ 	assert(curstk->flags & MF_VFPU);
+ 
+ 	/* Make sure VFPU state is written back to memory */
+diff --git a/glRotatef.c b/glRotatef.c
+index 25577ce..8c4c454 100644
+--- a/glRotatef.c
++++ b/glRotatef.c
+@@ -3,6 +3,7 @@
+ #include <pspvfpu.h>
+ 
+ #include "pspgl_internal.h"
++#include "pspgl_matrix.h"
+ 
+ void glRotatef (GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
+ {
+@@ -66,6 +67,40 @@ void glRotatef (GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
+ 	struct pspgl_matrix_stack *stk = c->current_matrix_stack;
+ 	struct pspgl_matrix *mat = c->current_matrix;
+ 
++	if (__pspgl_matrix_nocache(c, stk)) {
++		/* Plain-C axis-angle rotate for uncached stacks (same
++		   math as the reference implementation above). */
++		GLfloat m[16];
++		GLfloat s, co, omc, scale;
++		GLfloat xx, yy, zz, xy, yz, zx, xs, ys, zs;
++
++		scale = sqrtf(x*x + y*y + z*z);
++		if (scale < 1.0e-4f)
++			return;
++
++		angle *= (M_PI/180.f);
++		s = sinf(angle);
++		co = cosf(angle);
++
++		scale = 1.f / scale;
++		x *= scale;
++		y *= scale;
++		z *= scale;
++
++		xx = x*x; yy = y*y; zz = z*z;
++		xy = x*y; yz = y*z; zx = z*x;
++		xs = x*s; ys = y*s; zs = z*s;
++		omc = 1.f - co;
++
++		m[0]  = omc*xx + co; m[1]  = omc*xy + zs; m[2]  = omc*zx - ys; m[3]  = 0.f;
++		m[4]  = omc*xy - zs; m[5]  = omc*yy + co; m[6]  = omc*yz + xs; m[7]  = 0.f;
++		m[8]  = omc*zx + ys; m[9]  = omc*yz - xs; m[10] = omc*zz + co; m[11] = 0.f;
++		m[12] = 0.f;         m[13] = 0.f;         m[14] = 0.f;         m[15] = 1.f;
++
++		__pspgl_matrix_mem_mult(stk, m);
++		return;
++	}
++
+ 	if (!(stk->flags & MF_DISABLED))
+ 		stk->flags |= MF_DIRTY;
+ 
+diff --git a/glScalef.c b/glScalef.c
+index b51b99a..643df47 100644
+--- a/glScalef.c
++++ b/glScalef.c
+@@ -1,6 +1,7 @@
+ #include <pspvfpu.h>
+ 
+ #include "pspgl_internal.h"
++#include "pspgl_matrix.h"
+ 
+ 
+ void glScalef (GLfloat x, GLfloat y, GLfloat z)
+@@ -9,6 +10,22 @@ void glScalef (GLfloat x, GLfloat y, GLfloat z)
+ 	struct pspgl_matrix_stack *stk = c->current_matrix_stack;
+ 	struct pspgl_matrix *mat = c->current_matrix;
+ 
++	if (__pspgl_matrix_nocache(c, stk)) {
++		GLfloat *a = mat->mat;
++		int i;
++
++		for (i = 0; i < 4; i++) {
++			a[i]   *= x;
++			a[4+i] *= y;
++			a[8+i] *= z;
++		}
++
++		mat->flags &= ~MF_IDENTITY;
++		if (!(stk->flags & MF_DISABLED))
++			stk->flags |= MF_DIRTY;
++		return;
++	}
++
+ 	if (!(stk->flags & MF_DISABLED))
+ 		stk->flags |= MF_DIRTY;
+ 
+diff --git a/glTranslatef.c b/glTranslatef.c
+index 3897f99..645c532 100644
+--- a/glTranslatef.c
++++ b/glTranslatef.c
+@@ -1,6 +1,7 @@
+ #include <pspvfpu.h>
+ 
+ #include "pspgl_internal.h"
++#include "pspgl_matrix.h"
+ 
+ 
+ void glTranslatef (GLfloat x, GLfloat y, GLfloat z)
+@@ -13,12 +14,12 @@ void glTranslatef (GLfloat x, GLfloat y, GLfloat z)
+ 	if (pspgl_curctx->displaylists.is_in_glNewList & GL_COMPILE) { // we must record this command
+ 		struct stDisplayElement *new;
+ 		new = (struct stDisplayElement *) malloc (sizeof(struct stDisplayElement));
+-		// @@@ put new element at the end of list
+-		if (!__pspgl_actuallist->first)
+-			__pspgl_actuallist->first = new;
+-		if (__pspgl_actuallist->last)
+-			__pspgl_actuallist->last->next = new;
+-		new->next = NULL;
++		// @@@ put new element at the end of list
++		if (!__pspgl_actuallist->first)
++			__pspgl_actuallist->first = new;
++		if (__pspgl_actuallist->last)
++			__pspgl_actuallist->last->next = new;
++		new->next = NULL;
+ 		__pspgl_actuallist->last = new;
+ 		
+ 		// params of the command
+@@ -26,10 +27,24 @@ void glTranslatef (GLfloat x, GLfloat y, GLfloat z)
+ 		new->paramf1 = x; // to modify
+ 		new->paramf2 = y; // to modify
+ 		new->paramf3 = z; // to modify
+-	}
++	}
+ 	
+ 	if ((pspgl_curctx->displaylists.is_in_glNewList == GL_COMPILE_AND_EXECUTE)||(pspgl_curctx->displaylists.is_in_glNewList == 0)) {
+  // @@@ from here it's different, because it's the old function
++	if (__pspgl_matrix_nocache(c, stk)) {
++		GLfloat *a = mat->mat;
++		int i;
++
++		/* col3 += x*col0 + y*col1 + z*col2 */
++		for (i = 0; i < 4; i++)
++			a[12+i] += a[i]*x + a[4+i]*y + a[8+i]*z;
++
++		mat->flags &= ~MF_IDENTITY;
++		if (!(stk->flags & MF_DISABLED))
++			stk->flags |= MF_DIRTY;
++		return;
++	}
++
+ 	assert(stk->flags & MF_VFPU);
+ 
+ 	if (!(stk->flags & MF_DISABLED))
+@@ -55,7 +70,7 @@ void glTranslatef (GLfloat x, GLfloat y, GLfloat z)
+ }
+ 
+ // @@@ added by Edorul
+-void glTranslated(GLdouble x, GLdouble y, GLdouble z)
++void glTranslated(GLdouble x, GLdouble y, GLdouble z)
+ {
+ 	glTranslatef((GLfloat)x, (GLfloat)y, (GLfloat)z);
+ }
+diff --git a/pspgl_context.c b/pspgl_context.c
+index 82a88a9..d8f5233 100644
+--- a/pspgl_context.c
++++ b/pspgl_context.c
+@@ -105,6 +105,30 @@ static void flush_matrix(struct pspgl_context *c, unsigned opcode, int index,
+ 		   interprets them as literal integers, but the PSP
+ 		   treats them as being in the range [-1, 1]).  Also
+ 		   used for flipping inverted textures. */
++
++		if (__pspgl_matrix_nocache(c, stk)) {
++			/* Plain-C fold for uncached stacks:
++			   adjusted = M * A, with A = translate(trans) *
++			   scale(scale), column-major.  The VFPU fold
++			   below must not touch an uncached stack (and
++			   its keepset juggling is exactly what the
++			   uncached path exists to avoid). */
++			int i;
++
++			for (i = 0; i < 4; i++) {
++				adjusted[ 0+i] = m[ 0+i] * stk->scale[0];
++				adjusted[ 4+i] = m[ 4+i] * stk->scale[1];
++				adjusted[ 8+i] = m[ 8+i] * stk->scale[2];
++				adjusted[12+i] = m[ 0+i] * stk->trans[0] +
++						 m[ 4+i] * stk->trans[1] +
++						 m[ 8+i] * stk->trans[2] +
++						 m[12+i];
++			}
++
++			m = adjusted;
++			goto adjusted_done;
++		}
++
+ 		pspvfpu_use_matrices(c->vfpu_context, 0, VMAT4 | VMAT5 | VMAT6);
+ 
+ 		asm volatile("vmzero.t	m500\n"
+@@ -136,6 +160,7 @@ static void flush_matrix(struct pspgl_context *c, unsigned opcode, int index,
+ 
+ 		m = adjusted;
+ 	}
++adjusted_done: ;
+ 
+ 	/*
+ 	  Different matrices skip different rows:
+@@ -174,7 +199,17 @@ static void flush_pending_matrix_changes (struct pspgl_context *c)
+ 
+ 	flush_matrix(c, CMD_MAT_PROJ_TRIGGER, 0, &c->projection_stack);
+ 	flush_matrix(c, CMD_MAT_MODEL_TRIGGER, 0, &c->modelview_stack);
++
++	/* The texture matrix is re-sent on every draw.  Lazy flushing
++	   is unsound for it: render_setup changes the MF_ADJUST
++	   scale/bias per draw (byte vs short texcoords, texture flips)
++	   without marking the stack dirty, so consecutive draws with
++	   differing texcoord formats or textures can inherit a stale
++	   GE texture matrix.  Twelve extra words per draw is cheap
++	   insurance against sampling with a foreign matrix. */
++	c->texture_stack.flags |= MF_DIRTY;
+ 	flush_matrix(c, CMD_MAT_TEXTURE_TRIGGER, 0, &c->texture_stack);
++
+ 	flush_matrix(c, CMD_MAT_VIEW_TRIGGER, 0, &c->view_stack);
+ 
+ 	for(i = 0; i < NBONES; i++)
+diff --git a/pspgl_matrix.c b/pspgl_matrix.c
+index 75a1cd2..ad90abf 100644
+--- a/pspgl_matrix.c
++++ b/pspgl_matrix.c
+@@ -44,9 +44,62 @@ void __pspgl_matrix_load(struct pspgl_context *c, struct pspgl_matrix_stack *s)
+ 	s->flags |= MF_VFPU;
+ }
+ 
++/* The texture stack bypasses the VFPU top-of-stack cache: the GE
++   texture matrix has proven impossible to keep coherent under the lazy
++   VFPU cache (per-draw MF_ADJUST changes don't dirty the stack, and
++   the adjust fold drops the cached top from the VFPU keepset
++   mid-flush, so a stale save-slot copy can be restored over freshly
++   loaded values).  For an uncached stack the in-memory copy is always
++   authoritative: MF_VFPU is never set on it, and all mutations are
++   done in plain C. */
++int __pspgl_matrix_nocache(const struct pspgl_context *c, const struct pspgl_matrix_stack *s)
++{
++	return s == &c->texture_stack;
++}
++
++void __pspgl_matrix_mem_load(struct pspgl_matrix_stack *s, const GLfloat *m16)
++{
++	struct pspgl_matrix *mat = &s->stack[s->depth];
++	int i;
++
++	if (m16 == NULL)
++		m16 = __pspgl_identity;
++
++	for (i = 0; i < 16; i++)
++		mat->mat[i] = m16[i];
++
++	mat->flags &= ~MF_IDENTITY;
++	if (!(s->flags & MF_DISABLED))
++		s->flags |= MF_DIRTY;
++}
++
++/* top = top * m, column-major (standard GL right-multiply) */
++void __pspgl_matrix_mem_mult(struct pspgl_matrix_stack *s, const GLfloat *m16)
++{
++	struct pspgl_matrix *mat = &s->stack[s->depth];
++	const GLfloat *a = mat->mat;
++	GLfloat r[16];
++	int i, j;
++
++	for (j = 0; j < 4; j++)
++		for (i = 0; i < 4; i++)
++			r[4*j+i] = a[i]      * m16[4*j]   +
++				   a[4+i]  * m16[4*j+1] +
++				   a[8+i]  * m16[4*j+2] +
++				   a[12+i] * m16[4*j+3];
++
++	for (i = 0; i < 16; i++)
++		mat->mat[i] = r[i];
++
++	mat->flags &= ~MF_IDENTITY;
++	if (!(s->flags & MF_DISABLED))
++		s->flags |= MF_DIRTY;
++}
++
+ /* Select a new matrix stack as the current matrix stack. This
+    enforces the invarient that the top of the current matrix stack is
+-   always in the VFPU. */
++   always in the VFPU (except for uncached stacks, which stay in
++   memory). */
+ void __pspgl_matrix_select(struct pspgl_context *c, struct pspgl_matrix_stack *s)
+ {
+ 	struct pspgl_matrix_stack *stk = c->current_matrix_stack;
+@@ -54,9 +107,8 @@ void __pspgl_matrix_select(struct pspgl_context *c, struct pspgl_matrix_stack *s
+ 	if (stk == s)
+ 		return;
+ 
+-	if (stk) {
++	if (stk && (stk->flags & MF_VFPU)) {
+ 		/* Flush out the old stack state */
+-		assert(stk->flags & MF_VFPU);
+ 		__pspgl_matrix_sync(c, stk);
+ 		stk->flags &= ~MF_VFPU;
+ 	}
+@@ -64,7 +116,9 @@ void __pspgl_matrix_select(struct pspgl_context *c, struct pspgl_matrix_stack *s
+ 	c->current_matrix_stack = s;
+ 	c->current_matrix = &s->stack[s->depth];
+ 
+-	/* Load up the new VFPU state */
+-	assert((s->flags & MF_VFPU) == 0);
+-	__pspgl_matrix_load(c, s);
++	/* Load up the new VFPU state; uncached stacks stay in memory */
++	if (!__pspgl_matrix_nocache(c, s)) {
++		assert((s->flags & MF_VFPU) == 0);
++		__pspgl_matrix_load(c, s);
++	}
+ }
+diff --git a/pspgl_matrix.h b/pspgl_matrix.h
+index 95c14b7..bcdbe19 100644
+--- a/pspgl_matrix.h
++++ b/pspgl_matrix.h
+@@ -10,4 +10,14 @@ void __pspgl_matrix_load(struct pspgl_context *c, struct pspgl_matrix_stack *s);
+ /* Select a new current matrix stack, setting up the VFPU as required. */
+ void __pspgl_matrix_select(struct pspgl_context *c, struct pspgl_matrix_stack *s);
+ 
++/* Non-zero for matrix stacks that bypass the VFPU top-of-stack cache
++   entirely; their in-memory copy is always authoritative and all
++   mutations happen in plain C. */
++int __pspgl_matrix_nocache(const struct pspgl_context *c, const struct pspgl_matrix_stack *s);
++
++/* Plain-C mutations for uncached stacks.  mem_load with m16 == NULL
++   loads identity.  mem_mult right-multiplies: top = top * m. */
++void __pspgl_matrix_mem_load(struct pspgl_matrix_stack *s, const GLfloat *m16);
++void __pspgl_matrix_mem_mult(struct pspgl_matrix_stack *s, const GLfloat *m16);
++
+ #endif	/* PSPGL_MATRIX_H */
