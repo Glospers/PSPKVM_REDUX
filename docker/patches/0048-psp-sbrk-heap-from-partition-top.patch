@@ -48,7 +48,7 @@
 +
 +/* Left for the kernel's own needs -- thread stacks and the like still come out
 + * of this partition after the heap is taken. */
-+#define PSPKVM_HEAP_RESERVE   (1024 * 1024)
++#define PSPKVM_HEAP_RESERVE   (5 * 1024 * 1024)
 +/* Below this there is no point continuing: the VM's Java heap is one large
 + * malloc and will fail anyway, and a diagnosable refusal beats a wild pointer. */
 +#define PSPKVM_HEAP_MINIMUM   (6 * 1024 * 1024)

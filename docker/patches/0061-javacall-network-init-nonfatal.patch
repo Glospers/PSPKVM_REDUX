@@ -1,0 +1,61 @@
+diff --git a/javacall/implementation/psp_mips/midp/network.c b/javacall/implementation/psp_mips/midp/network.c
+index ee24f2ee..6cd233ee 100644
+--- a/javacall/implementation/psp_mips/midp/network.c
++++ b/javacall/implementation/psp_mips/midp/network.c
+@@ -146,21 +146,47 @@ javacall_result javacall_network_init_start(void) {
+ 	return JAVACALL_FAIL;
+     }
+ */
++	/*
++	 * Bringing the network up must never stop the VM from starting.
++	 *
++	 * Every failure below used to return JAVACALL_FAIL, which MIDP turns
++	 * into a failed pcsl_network_init and a VM that exits before it shows
++	 * anything -- on a real PSP-2000 that is a boot which drops straight
++	 * back to the XMB after the startup messages, with only
++	 * "Error, could not sceNetInit the network 80020190" in ms0:/pspkvm_vm.log
++	 * to say why. 0x80020190 is NO_MEMORY: sceNetInit wants a 384 KB pool
++	 * from the same partition the C heap was taken out of, and the heap had
++	 * left it a megabyte. The reserve in psp/pspkvm.c is the actual fix; this
++	 * is the belt to its braces, because a device that cannot spare the pool
++	 * (or has no WiFi configured at all) should still run offline MIDlets.
++	 *
++	 * A smaller pool is tried first, and if the stack still refuses the VM
++	 * carries on with networking marked unavailable rather than not booting.
++	 */
+ 	if((err = sceNetInit(384*1024, 42, 4*1024, 42, 4*1024))) {
+-    	javacall_printf(": Error, could not sceNetInit the network %08X\n", err);		
+-	return JAVACALL_FAIL;
++    	javacall_printf(": sceNetInit %08X, retrying with a smaller pool\n", err);
++	err = sceNetInit(128*1024, 42, 4*1024, 42, 4*1024);
++    }
++	if(err) {
++    	javacall_printf(": network unavailable %08X -- continuing without it\n", err);
++	network_initialized = 1;
++	return JAVACALL_OK;
+     }
+ 	if((err = sceNetInetInit())) {
+-    	javacall_printf(": Error, could not sceNetInetInit the network %08X\n", err);		
+-	return JAVACALL_FAIL;
++    	javacall_printf(": Error, could not sceNetInetInit the network %08X\n", err);
++	sceNetTerm();
++	network_initialized = 1;
++	return JAVACALL_OK;
+     }
+ 	if((err = sceNetResolverInit())) {
+-    	javacall_printf(": Error, could not sceNetResolverInit the network %08X\n", err);		
+-	return JAVACALL_FAIL;
+-    }	
++    	javacall_printf(": Error, could not sceNetResolverInit the network %08X\n", err);
++	network_initialized = 1;
++	return JAVACALL_OK;
++    }
+ 	if((err = sceNetApctlInit(0x8000, 48))) {
+-    	javacall_printf(": Error, could not sceNetApctlInit the network %08X\n", err);		
+-	return JAVACALL_FAIL;
++    	javacall_printf(": Error, could not sceNetApctlInit the network %08X\n", err);
++	network_initialized = 1;
++	return JAVACALL_OK;
+     }
+ 
+     sceNetApctlAddHandler(apctl_callback, NULL);
