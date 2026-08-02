@@ -171,6 +171,49 @@ static void m3gEvent(const char *what, jint a, jint b)
     m3gLog(what, a, b);
 }
 
+#if defined(M3G_PSP_FRAME_TIMING)
+/*
+ * FRAME TIMING -- where the milliseconds actually go.
+ *
+ * Enabled from jsr184/src/config/subsystem.gmk.  Microsecond stamps are
+ * accumulated around the four stages this layer controls and reported once
+ * every 128 frames, so the measurement costs one log line per two seconds of
+ * play rather than perturbing the thing being measured:
+ *
+ *   frame   -- bind to bind, i.e. everything including the MIDlet's own Java
+ *   seed    -- packing the target's 2D content into the engine's staging buffer
+ *   bind    -- m3gPspBindMemoryTarget
+ *   render  -- release entry minus bind exit: the engine's draws plus all the
+ *              Java the MIDlet ran between them
+ *   read    -- m3gPspReleaseTarget, which is the GPU read-back and its sync
+ *   deliver -- getting the finished frame into MIDP's buffer
+ *
+ * Whatever `frame` exceeds the sum of the rest is the VM: interpreted
+ * bytecode, MIDP's own 2D, and PSPKVM's blit.
+ */
+extern unsigned int sceKernelGetSystemTimeLow(void);
+
+static unsigned int s_tSeed, s_tBind, s_tRender, s_tRead, s_tDeliver, s_tFrame;
+static unsigned int s_tLastBind, s_tBindExit;
+static int s_timedFrames;
+
+static void m3gFrameReport(void)
+{
+    char line[160];
+
+    if (++s_timedFrames < 128 || javacall_diag_log == 0) {
+        return;
+    }
+    sprintf(line, "M3G: t frame=%u seed=%u bind=%u render=%u read=%u"
+            " deliver=%u (us/frame)\n",
+            s_tFrame / 128u, s_tSeed / 128u, s_tBind / 128u,
+            s_tRender / 128u, s_tRead / 128u, s_tDeliver / 128u);
+    javacall_diag_log(line);
+    s_timedFrames = 0;
+    s_tSeed = s_tBind = s_tRender = s_tRead = s_tDeliver = s_tFrame = 0;
+}
+#endif /* M3G_PSP_FRAME_TIMING */
+
 #if defined(M3G_TRACE)
 
 #define M3G_TRACE_BUDGET 200
@@ -251,55 +294,6 @@ static const M3Gfloat *m3gFetchTransform(jobject array, M3Gfloat *out)
  * When the target IS the display -- a plain Canvas -- source and destination
  * are the same memory and both copies are skipped.
  *--------------------------------------------------------------------*/
-
-/*
- * FRAME PROBE -- TEMPORARY.
- *
- * Every call in the rendering path reports success and the screen is black, so
- * the question is no longer "did it run" but "did it produce pixels, and did
- * they reach the buffer the MIDlet shows".  Three numbers answer it, and they
- * have to be measured rather than reasoned about:
- *
- *   seed  -- non-black pixels in the MIDlet's target when it binds, i.e. the
- *            2D it drew before asking for 3D
- *   frame -- non-black pixels the engine read back
- *
- * seed 0 and frame 0 means the engine drew nothing; frame non-zero with a
- * black screen means the frame is not reaching what gets flushed.  Its own
- * budget, because the per-call trace above floods and would swallow these.
- */
-#define M3G_PROBE_BUDGET 8
-static int s_probeLeft = M3G_PROBE_BUDGET;
-
-/*! \brief Non-black pixels in a 16-bit buffer; sampled, not exhaustive. */
-static int m3gCountLit(const unsigned short *pixels, int count)
-{
-    int i, lit = 0;
-
-    /* Every fourth pixel: enough to tell an empty frame from a drawn one
-     * without walking a quarter of a megabyte per frame. */
-    for (i = 0; i < count; i += 4) {
-        if (pixels[i] != 0) {
-            ++lit;
-        }
-    }
-    return lit;
-}
-
-static void m3gProbe(const char *what, const unsigned short *pixels,
-                     int width, int height)
-{
-    char line[128];
-
-    if (javacall_diag_log == 0 || s_probeLeft <= 0 || pixels == NULL) {
-        return;
-    }
-    --s_probeLeft;
-    sprintf(line, "M3G: %s %dx%d lit=%d of %d\n",
-            what, width, height,
-            m3gCountLit(pixels, width * height), (width * height) / 4);
-    javacall_diag_log(line);
-}
 
 /*!
  * \brief The pixels behind a MIDlet's rendering target.
@@ -388,36 +382,60 @@ static unsigned int *m3gStageBuffer(int width, int height)
     return s_stage;
 }
 
-/* TEMPORARY -- the backdrop fill 0x85541F lands in the 565 buffer as
- * exactly 0x1AB0 (PSP order).  Counting it at bind (seed side) and again
- * at release (delivered side) says whether the warm backdrop is present
- * before the 3D and whether it survived under it. */
-static int m3gCountWarm(const unsigned short *p, int count)
+/*
+ * MIDP 565 (PSP order: red low) -> the engine's RGBA8 (byte order R,G,B,A,
+ * which is the word 0xAABBGGRR on this little-endian CPU).
+ *
+ * Table-driven: the straightforward version costs about fifteen operations
+ * per pixel and runs over the whole frame at every bind, which is
+ * milliseconds of pure CPU on this hardware.  Two 256-entry tables split the
+ * 16-bit source into its high and low bytes, so the inner loop is two loads
+ * and an or.  Built on first use; 2 KB total.
+ */
+static unsigned int s_seedLo[256], s_seedHi[256];
+static int s_seedTablesReady;
+
+static void m3gBuildSeedTables(void)
 {
-    int i, n = 0;
-    for (i = 0; i < count; i += 7) {
-        if (p[i] == 0x1AB0) {
-            n++;
-        }
+    int v;
+
+    /*
+     * Source pixel (PSP order): red = bits 0-4, green = 5-10, blue = 11-15.
+     * Split at the byte boundary, so red comes entirely from the low byte,
+     * blue entirely from the high byte, and green from both:
+     *     green6 = gLow | (gHigh << 3),  gLow = (lo >> 5) & 7, gHigh = hi & 7
+     * The 8-bit expansion (g << 2) | (g >> 4) lands in disjoint bit ranges
+     * for the two halves -- gHigh >> 1 in bits 0-1, gLow << 2 in bits 2-4,
+     * gHigh << 5 in bits 5-7 -- so OR-ing the two table entries reproduces
+     * it exactly rather than approximately.
+     */
+    for (v = 0; v < 256; ++v) {
+        unsigned int r5   = (unsigned int) (v & 0x1F);
+        unsigned int gLow = (unsigned int) ((v >> 5) & 0x07);
+        unsigned int r8   = (r5 << 3) | (r5 >> 2);
+
+        s_seedLo[v] = 0xFF000000u | r8 | ((gLow << 2) << 8);
     }
-    return n;
+    for (v = 0; v < 256; ++v) {
+        unsigned int gHigh = (unsigned int) (v & 0x07);
+        unsigned int b5    = (unsigned int) ((v >> 3) & 0x1F);
+        unsigned int b8    = (b5 << 3) | (b5 >> 2);
+
+        s_seedHi[v] = (b8 << 16) | ((((gHigh << 5) | (gHigh >> 1))) << 8);
+    }
+    s_seedTablesReady = 1;
 }
 
-/* MIDP 565 (PSP order: red low) -> the engine's RGBA8 (byte order R,G,B,A,
- * which is the word 0xAABBGGRR on this little-endian CPU).  Bit-replicated
- * so white stays white. */
 static void m3gStageSeed(unsigned int *dst, const unsigned short *src, int count)
 {
     int i;
+
+    if (!s_seedTablesReady) {
+        m3gBuildSeedTables();
+    }
     for (i = 0; i < count; ++i) {
         unsigned int v = src[i];
-        unsigned int r = (v & 0x1F);
-        unsigned int g = (v >> 5) & 0x3F;
-        unsigned int b = (v >> 11) & 0x1F;
-        r = (r << 3) | (r >> 2);
-        g = (g << 2) | (g >> 4);
-        b = (b << 3) | (b >> 2);
-        dst[i] = 0xFF000000u | (b << 16) | (g << 8) | r;
+        dst[i] = s_seedLo[v & 0xFF] | s_seedHi[v >> 8];
     }
 }
 
@@ -453,8 +471,15 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
     jint hints       = KNI_GetParameterAsInt(2);
     jint depthBuffer = KNI_GetParameterAsInt(3);
 
-    /* TEMPORARY -- poisoned-parent sweep, once per frame. */
-    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "bind");
+#if defined(M3G_PSP_FRAME_TIMING)
+    unsigned int tEntry = sceKernelGetSystemTimeLow();
+    unsigned int tSeeded = tEntry;
+
+    if (s_tLastBind != 0) {
+        s_tFrame += tEntry - s_tLastBind;
+    }
+    s_tLastBind = tEntry;
+#endif
 
     unsigned short *pixels;
     unsigned short *stage;
@@ -487,24 +512,6 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
             dst.pixelData = (gxj_pixel_type *) pixels;
         }
 
-        /* TEMPORARY -- how did the target resolve?  r: 0 fell back, 1 image
-         * or screen via m3gTargetBuffer; img: does the Graphics carry an
-         * Image; the dims are what the seed and delivery will use. */
-        {
-            static int bindDiagLeft = 6;
-            if (bindDiagLeft > 0 && javacall_diag_log != 0) {
-                char line[96];
-                /* Only a real Graphics may be read as one; resolved implies
-                 * the class check in m3gTargetBuffer passed. */
-                int hasImg = resolved
-                    ? (M3G_IMAGEDATA_OF(target) != NULL) : -1;
-                --bindDiagLeft;
-                sprintf(line, "M3G: bindres r=%d img=%d %dx%d\n",
-                        resolved, hasImg, dst.width, dst.height);
-                javacall_diag_log(line);
-            }
-        }
-
         /* The screen is the largest surface anything renders at. */
         if (dst.width > screenWidth || dst.height > screenHeight) {
             dst.width  = screenWidth;
@@ -518,27 +525,17 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
             result = M3G_PSP_ERR_OUT_OF_MEMORY;
         }
         else {
-            m3gProbe("seed", (const unsigned short *) dst.pixelData,
-                     width, height);
-
-            /* TEMPORARY -- warm census, seed side. */
-            {
-                static int warmSeedLeft = 40;
-                if (warmSeedLeft > 0 && javacall_diag_log != 0) {
-                    char line[64];
-                    --warmSeedLeft;
-                    sprintf(line, "M3G: warm s=%d\n",
-                            m3gCountWarm((const unsigned short *) dst.pixelData,
-                                         width * height));
-                    javacall_diag_log(line);
-                }
-            }
-
             /* Seed the frame with the target's current content: unless the
-             * OVERWRITE hint is set the engine composes the 3D over it, which
-             * is how 2D drawn before bindTarget shows through. */
+             * OVERWRITE hint is set the engine composes the 3D over it,
+             * which is how 2D drawn before bindTarget shows through.  This
+             * title's warm radiation backdrop is exactly that, so the seed
+             * is load-bearing -- see the note in m3gPspBindMemoryTarget. */
             m3gStageSeed(stage, (const unsigned short *) dst.pixelData,
                          width * height);
+#if defined(M3G_PSP_FRAME_TIMING)
+            tSeeded = sceKernelGetSystemTimeLow();
+            s_tSeed += tSeeded - tEntry;
+#endif
 
             result = m3gPspBindMemoryTarget(stage, width, height,
                                             width * (M3Gint) sizeof(unsigned int),
@@ -556,36 +553,10 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
     m3gEvent("bind", width, height);
     m3gTrace("bind ok", width, height);
 
-    /*
-     * Heartbeat. Every trace above is budgeted, so once they run out a title
-     * that is still drawing looks exactly like one that has stopped -- which
-     * is the difference between "renders black" and "died", and the first
-     * thing worth knowing about a black screen. One line per 64 frames costs
-     * nothing and never runs out.
-     */
-    {
-        /* Draw accounting from the GL wrappers (m3g/src/m3g_psp_gl.c): the
-         * heartbeat now says whether the ENGINE submitted geometry between
-         * binds.  draws= includes this port's own probes; the engine's real
-         * submissions are whatever exceeds them. */
-        extern int m3gPspDrawCalls __attribute__((weak));
-        extern int m3gPspDrawVertices __attribute__((weak));
-
-        static int frames;
-        if ((++frames & 63) == 0 && javacall_diag_log != 0) {
-            char line[96];
-            if (&m3gPspDrawCalls != 0) {
-                sprintf(line, "M3G: frame %d draws=%d verts=%d\n",
-                        frames, m3gPspDrawCalls, m3gPspDrawVertices);
-                m3gPspDrawCalls = 0;
-                m3gPspDrawVertices = 0;
-            }
-            else {
-                sprintf(line, "M3G: frame %d\n", frames);
-            }
-            javacall_diag_log(line);
-        }
-    }
+#if defined(M3G_PSP_FRAME_TIMING)
+    s_tBindExit = sceKernelGetSystemTimeLow();
+    s_tBind += s_tBindExit - tSeeded;
+#endif
 
     KNI_ReturnInt((width << 16) | height);
 }
@@ -598,10 +569,24 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
 KNIEXPORT KNI_RETURNTYPE_INT
 Java_javax_microedition_m3g_Graphics3D_nRelease()
 {
+#if defined(M3G_PSP_FRAME_TIMING)
+    unsigned int tEntry = sceKernelGetSystemTimeLow();
+
+    if (s_tBindExit != 0) {
+        s_tRender += tEntry - s_tBindExit;
+    }
+#endif
+
     /* This is what makes the frame appear: the engine reads its pbuffer back
      * into the staging buffer (through the GE -- see m3gStageBuffer), and the
      * result is copied into the pixels the MIDlet will flush. */
     jint result = m3gPspReleaseTarget();
+
+#if defined(M3G_PSP_FRAME_TIMING)
+    unsigned int tRead = sceKernelGetSystemTimeLow();
+
+    s_tRead += tRead - tEntry;
+#endif
 
     unsigned short *pixels;
     int screenWidth = 0, screenHeight = 0, encoding = 0;
@@ -631,47 +616,26 @@ Java_javax_microedition_m3g_Graphics3D_nRelease()
             width  = (dst.width  > screenWidth)  ? screenWidth  : dst.width;
             height = (dst.height > screenHeight) ? screenHeight : dst.height;
 
-            /* TEMPORARY -- the far side of the read-back conversion; pairs
-             * with the raw565 dump in m3g/src/m3g_psp_gl.c.  Together they
-             * say whether white was read from the GE or manufactured by the
-             * conversion chain in between. */
-            {
-                static int once;
-                if (!once && javacall_diag_log != 0) {
-                    char line[128];
-                    int mid = (height / 2) * width + width / 2;
-                    once = 1;
-                    sprintf(line,
-                            "M3G: stage8888 [0]=%08x [1]=%08x [mid]=%08x "
-                            "[mid+1]=%08x [top]=%08x\n",
-                            s_stage[0], s_stage[1],
-                            s_stage[mid], s_stage[mid + 1],
-                            s_stage[(size_t) (height - 1) * width + width / 2]);
-                    javacall_diag_log(line);
-                }
+            /* The fast path: the cached frame is already in the screen's
+             * own pixel layout, so it is copied straight in and the whole
+             * RGBA8 round trip is skipped.  It only engages once it has
+             * been checked against a frame the conversion below produced --
+             * m3gPspFrameVerify does that on the first frame. */
+            if (!m3gPspFrameToMidp((unsigned short *) dst.pixelData,
+                                   width, height)) {
+                m3gStageDeliver((unsigned short *) dst.pixelData, s_stage,
+                                width * height);
+                m3gPspFrameVerify((const unsigned short *) dst.pixelData,
+                                  width, height);
             }
-
-            m3gStageDeliver((unsigned short *) dst.pixelData, s_stage,
-                            width * height);
-
-            /* TEMPORARY -- warm census, delivered side. */
-            {
-                static int warmFrameLeft = 40;
-                if (warmFrameLeft > 0 && javacall_diag_log != 0) {
-                    char line[64];
-                    --warmFrameLeft;
-                    sprintf(line, "M3G: warm f=%d\n",
-                            m3gCountWarm((const unsigned short *) dst.pixelData,
-                                         width * height));
-                    javacall_diag_log(line);
-                }
-            }
-
-            m3gProbe("frame", (const unsigned short *) dst.pixelData,
-                     width, height);
         }
     }
     KNI_EndHandles();
+
+#if defined(M3G_PSP_FRAME_TIMING)
+    s_tDeliver += sceKernelGetSystemTimeLow() - tRead;
+    m3gFrameReport();
+#endif
 
     m3gTrace("release", result, 0);
     KNI_ReturnInt(result);
@@ -765,12 +729,11 @@ Java_javax_microedition_m3g_Graphics3D_nRenderNode()
         KNI_ReturnInt(M3G_PSP_ERR_INVALID);
     }
 
-    /* TEMPORARY -- the poisoned-parent hunt.  The sweep timestamps the
-     * first moment any node's parent link stops being a pointer; the
-     * direct check below keeps THIS call from walking a poisoned chain
-     * (the crash lived here, in the engine's alignment update), logging
-     * instead of dying. */
-    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "renderNode");
+    /* Parent sanity guard: a node whose parent link is not a pointer into
+     * the arena is skipped (and reported, budgeted) instead of letting the
+     * engine's alignment update walk the poisoned chain and crash.  The
+     * use-after-free family that produced such nodes is fixed (wrappers pin
+     * their objects), so this is a cheap regression backstop. */
     {
         const void *parent = *(const void **)
             ((const char *) (size_t) handle + 0x3C);
@@ -801,43 +764,6 @@ Java_javax_microedition_m3g_Graphics3D_nRenderNode()
     result = m3gPspRenderNode((M3GObject) handle, transform);
     m3gEvent("renderNode<", handle, result);
 
-    /* TEMPORARY -- pairs with the camMtx dump: one node transform, plus the
-     * blend/alpha/test register state the engine's own draws ran under
-     * (probes never enable blending; the title does).  Registers 0x1C-0x2F
-     * cover the enable block, 0xD8-0xE4 the alpha/blend functions. */
-    {
-        static int logged;
-        extern void *__pspgl_curctx;
-        if (!logged && transform != NULL && javacall_diag_log != 0
-            && __pspgl_curctx != 0) {
-            const unsigned int *reg =
-                (const unsigned int *) ((char *) __pspgl_curctx + 8);
-            /* 33 registers at 10 characters plus prefixes: 341 bytes of
-             * text.  Sized with margin -- the last undersized dump buffer
-             * jumped the CPU into its own hex string. */
-            char line[420];
-            int i, n;
-            logged = 1;
-            n = sprintf(line, "M3G: nodeMtx");
-            for (i = 0; i < 16; ++i) {
-                n += sprintf(line + n, " %g", (double) transform[i]);
-            }
-            line[n] = '\n';
-            line[n + 1] = '\0';
-            javacall_diag_log(line);
-
-            n = sprintf(line, "M3G: geDraw");
-            for (i = 0x1C; i <= 0x2F; ++i) {
-                n += sprintf(line + n, " %02x=%06x", i, reg[i] & 0xFFFFFF);
-            }
-            for (i = 0xD8; i <= 0xE4; ++i) {
-                n += sprintf(line + n, " %02x=%06x", i, reg[i] & 0xFFFFFF);
-            }
-            line[n] = '\n';
-            line[n + 1] = '\0';
-            javacall_diag_log(line);
-        }
-    }
     m3gMilestone((result == M3G_PSP_RENDER_OK) ? M3G_MILESTONE_RENDER_OK
                                                : M3G_MILESTONE_RENDER_FAIL,
                  (result == M3G_PSP_RENDER_OK) ? "renderNode ok"
@@ -911,25 +837,6 @@ Java_javax_microedition_m3g_Graphics3D_nSetCamera()
         m3gMilestone(M3G_MILESTONE_CAMERA, "setCamera", handle, result);
     }
     m3gTrace("setCamera", handle, result);
-
-    /* TEMPORARY -- the actual numbers the title steers its camera with, so
-     * the view-matrix theory of the invisible scene can be checked offline
-     * with real inputs instead of synthetic ones. */
-    {
-        static int logged;
-        if (!logged && transform != NULL && javacall_diag_log != 0) {
-            char line[220];
-            int i, n;
-            logged = 1;
-            n = sprintf(line, "M3G: camMtx");
-            for (i = 0; i < 16; ++i) {
-                n += sprintf(line + n, " %g", (double) transform[i]);
-            }
-            line[n] = '\n';
-            line[n + 1] = '\0';
-            javacall_diag_log(line);
-        }
-    }
     KNI_ReturnInt(result);
 }
 

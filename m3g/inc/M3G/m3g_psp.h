@@ -260,6 +260,27 @@ M3Gint m3gPspTakeError(void);
  */
 void m3gPspReadbackHint(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
 
+/*!
+ * \brief Writes the frame just read back straight into a MIDP 565 buffer.
+ *
+ * The cached frame is already in the screen's own pixel layout, so this is a
+ * row-wise copy -- it replaces expanding every chunk to RGBA8, the engine's
+ * copy of those chunks, and packing the result back down to 565.
+ *
+ * \return non-zero if the frame was delivered; zero if the caller must fall
+ *         back to converting the engine's staging buffer.
+ */
+M3Gint m3gPspFrameToMidp(unsigned short *dst, M3Gint width, M3Gint height);
+
+/*!
+ * \brief Checks the direct copy against a frame the engine delivered.
+ *
+ * Enables m3gPspFrameToMidp only if the copy reproduces \a reference
+ * exactly. Call once, with the first frame the proven path produced.
+ */
+void m3gPspFrameVerify(const unsigned short *reference,
+                       M3Gint width, M3Gint height);
+
 void   m3gPspSetViewport(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
 void   m3gPspSetClipRect(M3Gint x, M3Gint y, M3Gint width, M3Gint height);
 void   m3gPspSetDepthRange(M3Gfloat depthNear, M3Gfloat depthFar);

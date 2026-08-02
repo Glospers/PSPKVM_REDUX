@@ -37,6 +37,7 @@
 
 #include <GLES/gl.h>
 #include <stdlib.h>     /* calloc/free -- the NULL-data TexImage shim */
+#include <string.h>     /* memcmp -- the read-back invert probe */
 
 /*----------------------------------------------------------------------
  * pspgl entry points forwarded to
@@ -221,6 +222,135 @@ static int s_frameCapacity;             /* in pixels                        */
 static int s_hintX, s_hintY, s_hintW, s_hintH;
 static int s_frameValid;
 
+/*
+ * One-transfer read-back.
+ *
+ * pspgl's normal glReadPixels flips the image to GL row order with a
+ * negative source stride, which __pspgl_copy_pixels can only do as one GE
+ * copy PER LINE -- 272 separate transfers, each a VRAM download stall under
+ * PPSSPP.  With GL_PACK_INVERT_MESA the flip is skipped and the whole frame
+ * moves in a single positive-stride block transfer; the rows then arrive
+ * top-down and the expansion below indexes them mirrored.
+ *
+ * The inverted path reads framebuffer rows y..y+H-1 directly, so the read
+ * must be re-aimed at (surfaceHeight - y - H) to cover the same rows the
+ * normal path returns.  Rather than trust that arithmetic against pspgl's
+ * flip conventions, the first frame is read BOTH ways and compared row for
+ * row; the inverted path is only enabled once a candidate origin matches
+ * the proven-correct normal read exactly.  A failed probe costs two extra
+ * reads on one frame and leaves the working path in place.
+ */
+#define M3G_PSP_PACK_INVERT_MESA 0x8758
+
+extern void glPixelStorei(GLenum pname, GLint param);
+
+static int s_invertOn;
+static int s_invertY;
+static int s_probeDone;
+
+/*
+ * Where MIDP row r lives in the cache: row  sign*r + bias.  One affine map
+ * covers every layout involved, because they differ only by a flip and a
+ * row offset.  Measured by m3gPspFrameVerify below, never assumed; the
+ * read-back probe folds its own flip into the same pair.
+ */
+static int s_directOn;
+static int s_dSign = 1, s_dBias;
+
+/*
+ * Decide whether the frame can be fetched in one transfer.
+ *
+ * Run once, on a frame whose cache has already been filled the normal way
+ * and whose delivery mapping is already known, so the comparison has a
+ * trustworthy reference and this frame's own delivery is unaffected -- the
+ * cache is left exactly as it was found.
+ *
+ * The inverted read is aimed at (surface - height), which is entirely
+ * inside the surface. pspgl's flipped read is NOT: it starts one row past
+ * the end, so the two differ by a row, and the offset is part of what the
+ * search below measures rather than something to get right by derivation.
+ * Whatever flip and offset relate the two layouts is then composed into
+ * the delivery mapping, so nothing downstream needs to know which path the
+ * read took.
+ */
+static void m3gPspProbeInvert(int stride)
+{
+    extern int m3gPspSurfaceHeight;
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+
+    static const int nudge[3] = { 0, -1, 1 };
+    int surf = m3gPspSurfaceHeight;
+    unsigned short *probe;
+    int c;
+
+    s_probeDone = 1;
+
+    if (surf <= 0 || s_hintH > surf || s_hintH < 8) {
+        return;
+    }
+    probe = (unsigned short *) memalign(64, (size_t) stride * s_hintH * 2);
+    if (probe == NULL) {
+        return;
+    }
+
+    for (c = 0; c < 3 && !s_invertOn; ++c) {
+        int cand = surf - s_hintH + nudge[c];
+        int s, k;
+
+        if (cand < 0 || cand + s_hintH > surf) {
+            continue;
+        }
+        glPixelStorei(M3G_PSP_PACK_INVERT_MESA, 1);
+        __real_glReadPixels(s_hintX, cand, s_hintW, s_hintH,
+                            GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV, probe);
+        glPixelStorei(M3G_PSP_PACK_INVERT_MESA, 0);
+
+        /* probe[i] == cache[gSign*i + gBias] ? */
+        for (s = 0; s < 2 && !s_invertOn; ++s) {
+            int gSign = (s == 0) ? -1 : 1;
+
+            for (k = 0; k < 3 && !s_invertOn; ++k) {
+                int gBias = ((gSign < 0) ? (s_hintH - 1) : 0) + nudge[k];
+                int rows[3], i, ok = 1;
+
+                rows[0] = 1;
+                rows[1] = s_hintH / 2;
+                rows[2] = s_hintH - 2;
+                for (i = 0; i < 3 && ok; ++i) {
+                    int n = gSign * rows[i] + gBias;
+
+                    if (n < 0 || n > s_hintH - 1
+                        || memcmp(probe + (size_t) rows[i] * stride,
+                                  s_frame + (size_t) n * stride,
+                                  (size_t) s_hintW * 2) != 0) {
+                        ok = 0;
+                    }
+                }
+                if (ok) {
+                    /* Delivery reads cache[dSign*r + dBias]; the cache is
+                     * about to become the inverted read, whose row i holds
+                     * what used to be row gSign*i + gBias. Invert that and
+                     * fold it in, so delivery keeps working untouched. */
+                    int nSign = gSign * s_dSign;
+                    int nBias = gSign * (s_dBias - gBias);
+
+                    s_dSign = nSign;
+                    s_dBias = nBias;
+                    s_invertOn = 1;
+                    s_invertY = cand;
+                }
+            }
+        }
+    }
+    free(probe);
+
+    if (javacall_diag_log != 0) {
+        javacall_diag_log(s_invertOn
+                          ? "M3G: readback single-transfer on\n"
+                          : "M3G: readback single-transfer unavailable\n");
+    }
+}
+
 void m3gPspReadbackHint(int x, int y, int width, int height)
 {
     s_hintX = x;
@@ -228,6 +358,129 @@ void m3gPspReadbackHint(int x, int y, int width, int height)
     s_hintW = width;
     s_hintH = height;
     s_frameValid = 0;
+}
+
+/*
+ * Direct delivery of the cached frame.
+ *
+ * The frame the GE produced is already in the PSP's native 565 layout --
+ * the same layout MIDP's screen buffer uses.  The long way round costs
+ * three full-frame CPU passes: this file expands 565 to RGBA8 for each
+ * chunk the engine asks for, m3gcore copies those chunks into the staging
+ * buffer, and the KNI layer packs the staging buffer back down to 565.  The
+ * two conversions are exact inverses of each other (each swaps red and blue,
+ * cancelling out), so the whole round trip reduces to a row-wise copy.
+ *
+ * m3gPspFrameToMidp does that copy.  It is only used once
+ * m3gPspFrameVerify has confirmed, against the engine's own output, that
+ * the copy reproduces it exactly -- the row order depends on which
+ * read-back path pspgl took, and a wrong guess would deliver the frame
+ * upside down.  Until then (and forever, if the check fails) the proven
+ * path runs unchanged.
+ */
+/*
+ * The row of the cache that holds MIDP row r is  sign*r + bias  -- one
+ * affine map, because every layout involved differs only by a flip and a
+ * row offset.  Both are found by measurement (m3gPspFrameVerify), never
+ * assumed, and the read-back probe composes its own flip into the same
+ * pair rather than adding a second special case.
+ */
+static int m3gPspFrameRow(int r)
+{
+    int n = s_dSign * r + s_dBias;
+
+    if (n < 0)            { n = 0; }
+    if (n > s_hintH - 1)  { n = s_hintH - 1; }
+    return n;
+}
+
+int m3gPspFrameToMidp(unsigned short *dst, int width, int height)
+{
+    int stride, row;
+
+    if (!s_frameValid || s_frame == NULL || !s_directOn
+        || width != s_hintW || height != s_hintH) {
+        return 0;
+    }
+    stride = (s_hintW + 1) & ~1;
+
+    for (row = 0; row < height; ++row) {
+        memcpy(dst + (size_t) row * (size_t) width,
+               s_frame + (size_t) m3gPspFrameRow(row) * (size_t) stride,
+               (size_t) width * 2);
+    }
+    return 1;
+}
+
+/*!
+ * \brief Decides whether the direct copy reproduces the engine's own frame.
+ *
+ * \a reference is the frame the proven path just delivered into MIDP's
+ * buffer.  Three rows are enough: a wrong row order shows up on any of
+ * them, and a wrong channel order on all of them.
+ */
+/*! \brief True if rows \a a of the cache and \a b of \a ref are identical. */
+static int m3gPspRowsMatch(const unsigned short *ref, int width, int stride,
+                           int sign, int bias)
+{
+    int probe[3], i;
+
+    /* Interior rows only: pspgl's flipped read starts one row past the end
+     * of the surface, so the first and last rows of any frame come from a
+     * read that ran off the buffer and hold different garbage each time. */
+    probe[0] = 1;
+    probe[1] = s_hintH / 2;
+    probe[2] = s_hintH - 2;
+
+    for (i = 0; i < 3; ++i) {
+        int n = sign * probe[i] + bias;
+
+        if (n < 0 || n > s_hintH - 1) {
+            return 0;
+        }
+        if (memcmp(ref + (size_t) probe[i] * width,
+                   s_frame + (size_t) n * stride,
+                   (size_t) width * 2) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void m3gPspFrameVerify(const unsigned short *reference, int width, int height)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static int tried;
+    static const int nudge[3] = { 0, -1, 1 };
+    int stride, s, k;
+
+    if (tried || s_directOn || !s_frameValid || s_frame == NULL
+        || width != s_hintW || height != s_hintH || height < 8) {
+        return;
+    }
+    tried = 1;
+    stride = (s_hintW + 1) & ~1;
+
+    /* Flipped first -- that is what pspgl's default read produces. */
+    for (s = 0; s < 2 && !s_directOn; ++s) {
+        int sign = (s == 0) ? -1 : 1;
+
+        for (k = 0; k < 3 && !s_directOn; ++k) {
+            int bias = ((sign < 0) ? (height - 1) : 0) + nudge[k];
+
+            if (m3gPspRowsMatch(reference, width, stride, sign, bias)) {
+                s_dSign = sign;
+                s_dBias = bias;
+                s_directOn = 1;
+            }
+        }
+    }
+
+    if (javacall_diag_log != 0) {
+        javacall_diag_log(s_directOn
+                          ? "M3G: direct frame delivery on\n"
+                          : "M3G: direct frame delivery unavailable\n");
+    }
 }
 
 /*! \brief Expands GE 5650 pixels to the RGBA8 bytes m3gcore expects. */
@@ -288,9 +541,25 @@ void __wrap_glReadPixels (GLint x, GLint y,
                 s_frameCapacity = (s_frame != NULL) ? need : 0;
             }
             if (s_frame != NULL) {
-                __real_glReadPixels(s_hintX, s_hintY, s_hintW, s_hintH,
-                                    GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV,
-                                    s_frame);
+                if (s_invertOn) {
+                    /* One block transfer instead of one per line. */
+                    glPixelStorei(M3G_PSP_PACK_INVERT_MESA, 1);
+                    __real_glReadPixels(s_hintX, s_invertY, s_hintW, s_hintH,
+                                        GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV,
+                                        s_frame);
+                    glPixelStorei(M3G_PSP_PACK_INVERT_MESA, 0);
+                }
+                else {
+                    __real_glReadPixels(s_hintX, s_hintY, s_hintW, s_hintH,
+                                        GL_RGB, GL_UNSIGNED_SHORT_5_6_5_REV,
+                                        s_frame);
+                    /* Only once the delivery mapping is known: the probe
+                     * compares against this cache and folds its result into
+                     * that mapping. */
+                    if (!s_probeDone && s_directOn) {
+                        m3gPspProbeInvert(stride);
+                    }
+                }
                 s_frameValid = 1;
 
 #if defined(M3G_PSP_READBACK_DUMP)
@@ -333,6 +602,16 @@ void __wrap_glReadPixels (GLint x, GLint y,
         }
 
         if (s_frameValid) {
+            /* Once the KNI layer delivers the frame straight from the cache
+             * above, whatever the engine assembles from these chunks is
+             * never looked at -- so filling them is a full-frame conversion
+             * spent on data nobody reads. */
+            if (s_directOn) {
+                return;
+            }
+            /* The inverted read is only ever enabled once direct delivery
+             * is on, so this path always sees the cache in the layout the
+             * normal read produced -- GL rows, straight through. */
             for (row = 0; row < height; ++row) {
                 m3gExpand565(
                     s_frame + (size_t) (y - s_hintY + row) * (size_t) stride,
@@ -562,135 +841,41 @@ extern void __real_glCompressedTexImage2D(GLenum target, GLint level,
                                           GLint border, GLsizei imageSize,
                                           const void *data);
 
-/* TEMPORARY -- the per-texture upload map.  Some textures commit and some
- * die (white dome, noise tiles) and every format theory so far has been
- * guesswork; one line per upload with the format and the error ends
- * that. */
-static void m3gPspTexLog(const char *who, unsigned int ifmt,
-                         unsigned int fmt, unsigned int type,
-                         int w, int h, int extra)
-{
-    extern void javacall_diag_log(const char *s) __attribute__((weak));
-    extern unsigned int __real_glGetError(void);
-    static int logged;
-    if (logged < 80 && javacall_diag_log != 0) {
-        char line[128];
-        logged++;
-        sprintf(line, "M3G: %s ifmt=0x%x fmt=0x%x type=0x%x %dx%d x=%d"
-                " err=0x%x\n",
-                who, ifmt, fmt, type, w, h, extra, __real_glGetError());
-        javacall_diag_log(line);
-    }
-}
-
-/* TEMPORARY -- the clear census.  No Fog objects exist in the whole
- * title, so the orange behind the translucent sky rows must be the
- * BACKGROUND COLOR CLEAR, animated by depth.  Log every glClear with
- * the latched clear color: never-runs = the game's background is
- * detached or clear disabled; wrong color = the setColor path; right
- * color = the clear is overwritten later and the hunt moves on. */
-static unsigned int s_clearRGBA;
-
+/* Diagnostic-era wraps kept as pass-throughs: the --wrap flags stay in the
+ * link (removing a flag whose __wrap_ symbol is referenced elsewhere would
+ * break it), but the census logging that motivated them is gone. */
 extern void __real_glClearColor(GLclampf r, GLclampf g, GLclampf b,
                                 GLclampf a);
 extern void __real_glClear(GLbitfield mask);
 
 void __wrap_glClearColor(GLclampf r, GLclampf g, GLclampf b, GLclampf a)
 {
-    s_clearRGBA = ((unsigned int) (r * 255.0f) << 16)
-                | ((unsigned int) (g * 255.0f) << 8)
-                | (unsigned int) (b * 255.0f)
-                | ((unsigned int) (a * 255.0f) << 24);
     __real_glClearColor(r, g, b, a);
 }
 
 void __wrap_glClear(GLbitfield mask)
 {
-    extern void javacall_diag_log(const char *s) __attribute__((weak));
-    static int logged;
     __real_glClear(mask);
-    if (logged < 30 && javacall_diag_log != 0) {
-        char line[80];
-        logged++;
-        sprintf(line, "M3G: clear mask=0x%x argb=0x%08x\n",
-                (unsigned int) mask, s_clearRGBA);
-        javacall_diag_log(line);
-    }
 }
 
-/* TEMPORARY -- does the engine ever CONFIGURE fog?  Every sampled draw
- * runs fog=0; underwater the title fogs everything (the orange behind
- * the translucent sky rows, and the per-frame coverage that kills
- * trails).  If these never log, no appearance has a Fog engine-side and
- * the loss is upstream; if they log, the enable is being dropped. */
 extern void __real_glFogf(GLenum pname, GLfloat param);
 extern void __real_glFogfv(GLenum pname, const GLfloat *params);
 
 void __wrap_glFogf(GLenum pname, GLfloat param)
 {
-    extern void javacall_diag_log(const char *s) __attribute__((weak));
-    static int logged;
     __real_glFogf(pname, param);
-    if (logged < 12 && javacall_diag_log != 0) {
-        char line[80];
-        logged++;
-        sprintf(line, "M3G: fogf pname=0x%x v=%d\n",
-                (unsigned int) pname, (int) param);
-        javacall_diag_log(line);
-    }
 }
 
 void __wrap_glFogfv(GLenum pname, const GLfloat *params)
 {
-    extern void javacall_diag_log(const char *s) __attribute__((weak));
-    static int logged;
     __real_glFogfv(pname, params);
-    if (logged < 12 && javacall_diag_log != 0) {
-        char line[96];
-        logged++;
-        sprintf(line, "M3G: fogfv pname=0x%x v0=%d v1=%d v2=%d\n",
-                (unsigned int) pname,
-                (params != 0) ? (int) (params[0] * 255.0f) : -1,
-                (params != 0) ? (int) (params[1] * 255.0f) : -1,
-                (params != 0) ? (int) (params[2] * 255.0f) : -1);
-        javacall_diag_log(line);
-    }
 }
 
-/* The bind side of the census: which texture objects the engine touches
- * per frame.  Three uploads for a whole world means the file-native
- * textures never commit; whether their texture objects are at least
- * BOUND (commit path breaks after bind) or never bound at all (the
- * appearance lost its texture upstream) is the next fork. */
 extern void __real_glBindTexture(GLenum target, GLuint texture);
 
 void __wrap_glBindTexture(GLenum target, GLuint texture)
 {
-    extern void javacall_diag_log(const char *s) __attribute__((weak));
-    static unsigned int seen[32];
-    static int seenCount;
-    static int logged;
-    int i;
-
     __real_glBindTexture(target, texture);
-
-    if (javacall_diag_log == 0 || logged >= 40) {
-        return;
-    }
-    for (i = 0; i < seenCount; ++i) {
-        if (seen[i] == texture) {
-            return;             /* only first sighting of each name */
-        }
-    }
-    if (seenCount < 32) {
-        seen[seenCount++] = texture;
-    }
-    {
-        char line[80];
-        logged++;
-        sprintf(line, "M3G: bindtex first name=%u\n", texture);
-        javacall_diag_log(line);
-    }
 }
 
 extern void __real_glTexImage2D(GLenum target, GLint level,
@@ -719,11 +904,6 @@ void __wrap_glTexImage2D(GLenum target, GLint level, GLint internalformat,
     __real_glTexImage2D(target, level, internalformat, width, height,
                         border, format, type, pixels);
     free(zeroed);
-    if (level == 0) {
-        m3gPspTexLog("tex", (unsigned int) internalformat,
-                     (unsigned int) format, (unsigned int) type,
-                     (int) width, (int) height, 0);
-    }
 }
 
 void __wrap_glCompressedTexImage2D(GLenum target, GLint level,
@@ -732,8 +912,6 @@ void __wrap_glCompressedTexImage2D(GLenum target, GLint level,
                                    GLint border, GLsizei imageSize,
                                    const void *data)
 {
-    m3gPspTexLog("ctex", (unsigned int) internalformat, 0, 0,
-                 (int) width, (int) height, (int) imageSize);
     if ((internalformat == 0x8B95 /* GL_PALETTE8_RGB8_OES  */
          || internalformat == 0x8B96 /* GL_PALETTE8_RGBA8_OES */)
         && data != NULL && width > 0 && height > 0
@@ -792,6 +970,130 @@ void __wrap_glVertexPointer(GLint size, GLenum type, GLsizei stride,
     }
     s_vertexArrayFixed = 0;
     __real_glVertexPointer(size, type, stride, pointer);
+}
+
+/*
+ * Genuine-float texture coordinates.
+ *
+ * pspgl keys several behaviours off the texcoord array TYPE -- the matrix
+ * adjust fold, the GE texture scale registers, the native-layout check --
+ * and with integral arrays those decisions leak between draws whose types
+ * differ: a GE capture showed the ship drawn with full-range short
+ * texcoords under the 8-bit x128 compensation (every UV was exactly a
+ * short times 128), which is the shape-shifting.  The dome is byte
+ * texcoords, the ship short; whichever state was left standing won.
+ *
+ * The cure is to never show pspgl an integral texcoord array at all: the
+ * pointer is shadowed here, and at draw time the touched range is
+ * converted to floats and re-pointed.  Every type-conditional path inside
+ * pspgl then sees GL_FLOAT, always.
+ */
+static struct {
+    GLint size;
+    GLenum type;
+    GLsizei stride;
+    const GLvoid *pointer;
+} s_texCoordArray;
+
+static float *s_tcScratch;
+static int s_tcScratchCap;      /* in floats */
+
+extern void __real_glTexCoordPointer(GLint size, GLenum type, GLsizei stride,
+                                     const GLvoid *pointer);
+
+void __wrap_glTexCoordPointer(GLint size, GLenum type, GLsizei stride,
+                              const GLvoid *pointer)
+{
+    s_texCoordArray.size = size;
+    s_texCoordArray.type = type;
+    s_texCoordArray.stride = stride;
+    s_texCoordArray.pointer = pointer;
+    __real_glTexCoordPointer(size, type, stride, pointer);
+}
+
+/* Convert vertices [0, count) of the shadowed integral texcoord array to
+ * floats and point pspgl at the scratch.  Returns non-zero if re-pointed
+ * (the caller restores the app's pointer after the draw). */
+static int m3gPspTexCoordsToFloat(int count)
+{
+    GLint size = s_texCoordArray.size;
+    GLenum type = s_texCoordArray.type;
+    const unsigned char *src =
+        (const unsigned char *) s_texCoordArray.pointer;
+    int srcStride = (int) s_texCoordArray.stride;
+    int need, i, c;
+    float *dst;
+
+    if (src == NULL || count <= 0 || size < 1 || size > 4) {
+        return 0;
+    }
+    if (type != 0x1400 /* GL_BYTE */ && type != 0x1402 /* GL_SHORT */) {
+        return 0;
+    }
+    if (srcStride == 0) {
+        srcStride = size * ((type == 0x1402) ? 2 : 1);
+    }
+
+    need = count * size;
+    if (need > s_tcScratchCap) {
+        free(s_tcScratch);
+        s_tcScratch = (float *) memalign(64, (size_t) need * sizeof(float));
+        s_tcScratchCap = (s_tcScratch != NULL) ? need : 0;
+        if (s_tcScratch == NULL) {
+            return 0;
+        }
+    }
+
+    dst = s_tcScratch;
+    for (i = 0; i < count; ++i) {
+        const unsigned char *v = src + (size_t) i * srcStride;
+        if (type == 0x1402) {
+            const short *s = (const short *) v;
+            for (c = 0; c < size; ++c) {
+                *dst++ = (float) s[c];
+            }
+        }
+        else {
+            const signed char *s = (const signed char *) v;
+            for (c = 0; c < size; ++c) {
+                *dst++ = (float) s[c];
+            }
+        }
+    }
+
+    __real_glTexCoordPointer(size, GL_FLOAT, 0, s_tcScratch);
+    return 1;
+}
+
+static void m3gPspTexCoordsRestore(void)
+{
+    __real_glTexCoordPointer(s_texCoordArray.size, s_texCoordArray.type,
+                             s_texCoordArray.stride,
+                             s_texCoordArray.pointer);
+}
+
+/* Highest vertex named by an index list, plus one. */
+static int m3gPspIndexRange(GLsizei count, GLenum type, const void *indices)
+{
+    int max = -1;
+    GLsizei i;
+
+    if (indices == NULL) {
+        return 0;
+    }
+    if (type == 0x1401 /* GL_UNSIGNED_BYTE */) {
+        const unsigned char *p = (const unsigned char *) indices;
+        for (i = 0; i < count; ++i) {
+            if (p[i] > max) max = p[i];
+        }
+    }
+    else if (type == 0x1403 /* GL_UNSIGNED_SHORT */) {
+        const unsigned short *p = (const unsigned short *) indices;
+        for (i = 0; i < count; ++i) {
+            if (p[i] > max) max = p[i];
+        }
+    }
+    return max + 1;
 }
 
 static void m3gCvtFixed3ToFloat3(void *to, const void *from, const void *a)
@@ -959,80 +1261,13 @@ void __wrap___pspgl_ge_vertex_fmt(void *ctx,
 }
 
 /*----------------------------------------------------------------------
- * Draw accounting
+ * Draw wrappers
  *
  * Linked with -Wl,--wrap,glDrawElements and -Wl,--wrap,glDrawArrays.
- *
- * The host harness proves the engine emits draw calls for these scenes; the
- * device screen shows no geometry.  These counters settle, on the device,
- * whether the engine's draws still happen (and the GE loses them) or the
- * engine itself is skipping meshes -- e.g. refusing appearances whose
- * textures did not survive the on-device commit path, which the host's stub
- * GL cannot reproduce because everything trivially succeeds there.
- *
- * Counters are reset and read by the KNI layer around each frame.
+ * Integral texcoords are promoted to genuine floats before the real draw
+ * runs (m3gPspTexCoordsToFloat), so pspgl's MF_ADJUST compensation -- whose
+ * VFPU fold has proven unsafe -- never triggers.
  *--------------------------------------------------------------------*/
-
-int m3gPspDrawCalls;
-int m3gPspDrawVertices;
-
-/*
- * TEMPORARY -- the mid-run draw list.
- *
- * The first-eight log below photographs boot, when the scene is still
- * sparse; the missing-mesh class (station, fish -- the meshes that arrive
- * by animation) only shows once the scene has filled in.  Frames are
- * inferred from the KNI layer's counter reset: the first draw after a
- * reset sees the counter at 1.  The KNI resets at its every-64-frame
- * report, so one tick here is a 64-frame block, not a frame -- the first
- * cut of this window waited for block 240 and never fired.  Two windows,
- * early and late, so a single run photographs the scene both sparse and
- * full; whether the missing meshes' draws are absent (engine skips them)
- * or present with wrong state decides where to dig next.
- */
-static void m3gPspDrawWindow(int count)
-{
-    extern void *__pspgl_curctx;
-    extern void javacall_diag_log(const char *s) __attribute__((weak));
-    static int frameNo;
-    static int lastArmed = -1;
-    static int budget;
-    static int cycles;
-
-    if (m3gPspDrawCalls == 1) {
-        frameNo++;
-    }
-    if (javacall_diag_log == 0 || __pspgl_curctx == 0 || cycles >= 8) {
-        return;
-    }
-    /* A window every 25 blocks (~27 s of play), one block long, so some
-     * window lands while the identity-leak scene is actually on screen --
-     * boot-only windows kept photographing the menu.  Each window gets a
-     * fresh budget; eight windows a session. */
-    if ((frameNo % 25) == 4) {
-        if (frameNo != lastArmed) {
-            lastArmed = frameNo;
-            budget = 60;
-            cycles++;
-        }
-    }
-    else {
-        return;
-    }
-
-    if (budget > 0) {
-        const unsigned int *reg =
-            (const unsigned int *) ((char *) __pspgl_curctx + 8);
-        char line[120];
-        budget--;
-        sprintf(line, "M3G: dw f=%d i=%d n=%d vt=%06x tex=%d tbp=%06x"
-                " bl=%d te=%06x mc=%06x\n",
-                frameNo, m3gPspDrawCalls, count,
-                reg[0x12] & 0xFFFFFF, reg[0x1E] & 1, reg[0xA0] & 0xFFFFFF,
-                reg[0x21] & 1, reg[0xC9] & 0xFFFFFF, reg[0x55] & 0xFFFFFF);
-        javacall_diag_log(line);
-    }
-}
 
 extern void __real_glDrawElements (GLenum mode, GLsizei count, GLenum type,
                                    const void *indices);
@@ -1041,45 +1276,24 @@ extern void __real_glDrawArrays (GLenum mode, GLint first, GLsizei count);
 void __wrap_glDrawElements (GLenum mode, GLsizei count, GLenum type,
                             const void *indices)
 {
-    m3gPspDrawCalls++;
-    m3gPspDrawVertices += (int) count;
+    int repointed;
+
+    repointed = m3gPspTexCoordsToFloat(m3gPspIndexRange(count, type, indices));
     __real_glDrawElements(mode, count, type, indices);
-    m3gPspDrawWindow((int) count);
-
-    /* TEMPORARY -- what state did the first engine draws actually run
-     * under?  The vertex-type word says whether a colour array was in the
-     * stream (bits 2-4), the enables whether texturing/lighting were on,
-     * and the texture registers what was bound.  One line for each of the
-     * first eight draws of a session. */
-    {
-        extern void *__pspgl_curctx;
-        extern void javacall_diag_log(const char *s) __attribute__((weak));
-        static int logged;
-
-        if (logged < 8 && __pspgl_curctx != 0 && javacall_diag_log != 0) {
-            const unsigned int *reg =
-                (const unsigned int *) ((char *) __pspgl_curctx + 8);
-            char line[200];
-            logged++;
-            sprintf(line,
-                    "M3G: draw%d n=%d vt=%06x texEna=%d lightEna=%d "
-                    "tbp=%06x tfmt=%06x tenv=%06x\n",
-                    logged, (int) count,
-                    reg[0x12] & 0xFFFFFF,
-                    reg[0x1E] & 1, reg[0x17] & 1,
-                    reg[0xA0] & 0xFFFFFF, reg[0xC3] & 0xFFFFFF,
-                    reg[0xC9] & 0xFFFFFF);
-            javacall_diag_log(line);
-        }
+    if (repointed) {
+        m3gPspTexCoordsRestore();
     }
 }
 
 void __wrap_glDrawArrays (GLenum mode, GLint first, GLsizei count)
 {
-    m3gPspDrawCalls++;
-    m3gPspDrawVertices += (int) count;
+    int repointed;
+
+    repointed = m3gPspTexCoordsToFloat((int) first + (int) count);
     __real_glDrawArrays(mode, first, count);
-    m3gPspDrawWindow((int) count);
+    if (repointed) {
+        m3gPspTexCoordsRestore();
+    }
 }
 
 /*----------------------------------------------------------------------
