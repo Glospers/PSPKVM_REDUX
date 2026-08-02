@@ -409,6 +409,21 @@ public abstract class Object3D {
         if (handle != 0 && animationTrack.handle != 0) {
             nAddAnimationTrack(handle, animationTrack.handle);
         }
+        else {
+            /* One side (or both) has no engine object yet -- the canonical
+             * case is a game building its animation rig during startup,
+             * before the renderer is up.  Replay after the deferred pass has
+             * created everything; flushDeferred runs these links after both
+             * creation passes, so construction order does not matter. */
+            final AnimationTrack fTrack = animationTrack;
+            linkLater(new Runnable() {
+                public void run() {
+                    if (handle != 0 && fTrack.handle != 0) {
+                        nAddAnimationTrack(handle, fTrack.handle);
+                    }
+                }
+            });
+        }
     }
 
     public AnimationTrack getAnimationTrack(int index) {

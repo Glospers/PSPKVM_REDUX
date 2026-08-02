@@ -38,6 +38,23 @@ public class KeyframeSequence extends Object3D {
         this.keyTimes = new int[numKeyframes];
         this.keyValues = new float[numKeyframes][numComponents];
         this.validRangeLast = numKeyframes - 1;
+        construct();
+    }
+
+    void createDeferred() {
+        handle = nCreate(numKeyframes, numComponents, interpolation);
+        register();
+    }
+
+    void applyDeferred() {
+        for (int i = 0; i < numKeyframes; i++) {
+            nSetKeyframe(handle, i, keyTimes[i], numComponents, keyValues[i]);
+        }
+        nSetValidRange(handle, validRangeFirst, validRangeLast);
+        if (duration > 0) {
+            nSetDuration(handle, duration);
+        }
+        nSetRepeatMode(handle, repeatMode);
     }
 
     public int getComponentCount()   { return numComponents; }
@@ -56,8 +73,17 @@ public class KeyframeSequence extends Object3D {
         if (value.length < numComponents) {
             throw new IllegalArgumentException("too few components");
         }
-        keyTimes[index] = time;
-        System.arraycopy(value, 0, keyValues[index], 0, numComponents);
+        /* Loaded wrappers have no Java mirror (see Object3D); the engine is
+         * the only store for them. */
+        if (keyTimes != null) {
+            keyTimes[index] = time;
+            System.arraycopy(value, 0, keyValues[index], 0, numComponents);
+        }
+        if (handle != 0) {
+            nSetKeyframe(handle, index, time,
+                         (numComponents > 0) ? numComponents : value.length,
+                         value);
+        }
     }
 
     public int getKeyframe(int index, float[] value) {
@@ -70,6 +96,9 @@ public class KeyframeSequence extends Object3D {
     public void setValidRange(int first, int last) {
         validRangeFirst = first;
         validRangeLast = last;
+        if (handle != 0) {
+            nSetValidRange(handle, first, last);
+        }
     }
 
     public int getValidRangeFirst() { return validRangeFirst; }
@@ -80,6 +109,9 @@ public class KeyframeSequence extends Object3D {
             throw new IllegalArgumentException("duration must be > 0");
         }
         this.duration = duration;
+        if (handle != 0) {
+            nSetDuration(handle, duration);
+        }
     }
 
     public int getDuration() {
@@ -91,6 +123,9 @@ public class KeyframeSequence extends Object3D {
             throw new IllegalArgumentException("invalid repeat mode");
         }
         repeatMode = mode;
+        if (handle != 0) {
+            nSetRepeatMode(handle, mode);
+        }
     }
 
     public int getRepeatMode() {
@@ -99,6 +134,13 @@ public class KeyframeSequence extends Object3D {
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 
+    private static native int nCreate(int numKeyframes, int numComponents,
+                                      int interpolation);
+    private static native void nSetKeyframe(int handle, int index, int time,
+                                            int numComponents, float[] value);
+    private static native void nSetValidRange(int handle, int first, int last);
+    private static native void nSetDuration(int handle, int duration);
+    private static native void nSetRepeatMode(int handle, int mode);
     private static native int nGetDuration(int handle);
     private static native int nGetKeyframeCount(int handle);
 }

@@ -48,6 +48,27 @@ public class AnimationTrack extends Object3D {
         }
         this.sequence = sequence;
         this.property = property;
+        construct();
+    }
+
+    /*
+     * The sequence is constructed before the track by necessity (the
+     * constructor requires it), so in the deferred queue it is always
+     * created first and its handle is available here.  A zero sequence
+     * handle means its creation genuinely failed; the track then stays
+     * engine-less, like every other object whose creation failed.
+     */
+    void createDeferred() {
+        if (sequence != null && sequence.handle != 0) {
+            handle = nCreate(sequence.handle, property);
+            register();
+        }
+    }
+
+    void applyDeferred() {
+        if (controller != null && controller.handle != 0) {
+            nSetController(handle, controller.handle);
+        }
     }
 
     public KeyframeSequence getKeyframeSequence() {
@@ -59,6 +80,27 @@ public class AnimationTrack extends Object3D {
 
     public void setController(AnimationController controller) {
         this.controller = controller;
+        if (handle != 0) {
+            if (controller == null) {
+                nSetController(handle, 0);
+            }
+            else if (controller.handle != 0) {
+                nSetController(handle, controller.handle);
+            }
+            else {
+                /* Deferred controller into a live track: forward once the
+                 * controller exists.  See Object3D.linkLater. */
+                final AnimationController fValue = controller;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (AnimationTrack.this.controller == fValue
+                                && fValue.handle != 0) {
+                            nSetController(handle, fValue.handle);
+                        }
+                    }
+                });
+            }
+        }
     }
 
     public AnimationController getController() {
@@ -74,6 +116,8 @@ public class AnimationTrack extends Object3D {
 
     /* Natives; see jsr184/src/native/m3g_object_kni.c. */
 
+    private static native int nCreate(int sequence, int property);
+    private static native void nSetController(int handle, int controller);
     private static native int nGetSequence(int handle);
     private static native int nGetTargetProperty(int handle);
 }

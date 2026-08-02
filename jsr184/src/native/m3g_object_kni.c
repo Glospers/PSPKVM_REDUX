@@ -444,7 +444,7 @@ static void m3gStoreMatrix(jobject array, const M3GMatrix *in)
 KNIEXPORT KNI_RETURNTYPE_VOID
 Java_javax_microedition_m3g_Object3D_nDiag()
 {
-    static int left = 40;
+    static int left = 3000;
 
     jint a = KNI_GetParameterAsInt(1);
     jint b = KNI_GetParameterAsInt(2);
@@ -935,10 +935,6 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
     M3GMatrix matrix;
     M3Gbool have;
 
-    /* TEMPORARY -- sweep at every setTransform too: the poison has shown
-     * up between a clean load-time sweep and this call. */
-    m3gPspArenaAuditNodes(m3gPspPeekInterface(), "setTransform");
-
     if (!m3gTransformableOk(handle, "setTransform")) {
         KNI_ReturnVoid();
     }
@@ -953,28 +949,6 @@ Java_javax_microedition_m3g_Transformable_nSetTransform()
         m3gIdentityMatrix(&matrix);
     }
 
-    /* TEMPORARY -- the two-instruction window.  Every gate above passed
-     * with a clean parent and the engine still read poison back out of
-     * +0x3c inside this very call.  Capture the object's matrix pointer
-     * and parent AS THEY ARE at the call, after all KNI marshalling: when
-     * the crash follows, the last preST line in the log convicts either
-     * the marshalling (par already dirty here) or the engine's own copy
-     * through the logged mtx pointer. */
-    {
-        extern void javacall_diag_log(const char *s) __attribute__((weak));
-        static int stLogged;
-        if (stLogged < 200 && javacall_diag_log != 0) {
-            char line[144];
-            unsigned int mtx = *(const unsigned int *)
-                ((const char *) (size_t) handle + 0x38);
-            unsigned int par = *(const unsigned int *)
-                ((const char *) (size_t) handle + 0x3C);
-            stLogged++;
-            sprintf(line, "M3G: preST obj=0x%x mtx=0x%x par=0x%x stk=%p\n",
-                    (unsigned int) handle, mtx, par, (void *) &matrix);
-            javacall_diag_log(line);
-        }
-    }
     m3gSetTransform((M3GTransformable) handle, &matrix);
     KNI_ReturnVoid();
 }
@@ -3103,4 +3077,186 @@ Java_javax_microedition_m3g_KeyframeSequence_nGetKeyframeCount()
 {
     jint k = KNI_GetParameterAsInt(1);
     KNI_ReturnInt((k != 0) ? m3gGetKeyframeCount((M3GKeyframeSequence) k) : 0);
+}
+
+/*
+ * The creation and state-push half of the animation classes.
+ *
+ * A title that authors animation at runtime -- rather than shipping it in the
+ * .m3g file -- builds KeyframeSequence/AnimationTrack/AnimationController
+ * objects itself and attaches them with Object3D.addAnimationTrack.  Until
+ * these natives existed those objects lived only as Java mirrors, so
+ * Object3D.animate() had nothing engine-side to drive: everything the game
+ * animated this way simply never moved.
+ */
+
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_KeyframeSequence_nCreate()
+{
+    jint numKeyframes  = KNI_GetParameterAsInt(1);
+    jint numComponents = KNI_GetParameterAsInt(2);
+    jint interpolation = KNI_GetParameterAsInt(3);
+
+    KNI_ReturnInt(M3G_NEW("KeyframeSequence",
+                          m3gCreateKeyframeSequence(m3gPspPeekInterface(),
+                                                    numKeyframes,
+                                                    numComponents,
+                                                    interpolation)));
+}
+
+/*
+ * private static native void nSetKeyframe(int handle, int index, int time,
+ *                                         int numComponents, float[] value);
+ */
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_KeyframeSequence_nSetKeyframe()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+    jint index  = KNI_GetParameterAsInt(2);
+    jint time   = KNI_GetParameterAsInt(3);
+    jint size   = KNI_GetParameterAsInt(4);
+
+    KNI_StartHandles(1);
+    KNI_DeclareHandle(array);
+    KNI_GetParameterAsObject(5, array);
+    if (handle != 0 && size > 0 && !KNI_IsNullHandle(array)
+        && KNI_GetArrayLength(array) >= size) {
+        const M3Gfloat *value =
+            (const M3Gfloat *) SNI_GetRawArrayPointer(array);
+        if (value != NULL) {
+            m3gSetKeyframe((M3GKeyframeSequence) handle, index, time,
+                           size, value);
+        }
+    }
+    KNI_EndHandles();
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_KeyframeSequence_nSetValidRange()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetValidRange((M3GKeyframeSequence) handle,
+                         KNI_GetParameterAsInt(2),
+                         KNI_GetParameterAsInt(3));
+    }
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_KeyframeSequence_nSetDuration()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetDuration((M3GKeyframeSequence) handle,
+                       KNI_GetParameterAsInt(2));
+    }
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_KeyframeSequence_nSetRepeatMode()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetRepeatMode((M3GKeyframeSequence) handle,
+                         (M3Genum) KNI_GetParameterAsInt(2));
+    }
+    KNI_ReturnVoid();
+}
+
+/*
+ * private static native int nCreate(int sequence, int property);
+ *
+ * The engine keeps its own reference on the sequence, so the track is safe
+ * even if the Java-side KeyframeSequence wrapper is dropped.
+ */
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_AnimationTrack_nCreate()
+{
+    jint sequence = KNI_GetParameterAsInt(1);
+    jint property = KNI_GetParameterAsInt(2);
+
+    if (sequence == 0) {
+        KNI_ReturnInt(0);
+    }
+    KNI_ReturnInt(M3G_NEW("AnimationTrack",
+                          m3gCreateAnimationTrack(m3gPspPeekInterface(),
+                                                  (M3GKeyframeSequence) sequence,
+                                                  property)));
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_AnimationTrack_nSetController()
+{
+    jint track      = KNI_GetParameterAsInt(1);
+    jint controller = KNI_GetParameterAsInt(2);
+
+    if (track != 0) {
+        m3gSetController((M3GAnimationTrack) track,
+                         (M3GAnimationController) controller);
+    }
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_INT
+Java_javax_microedition_m3g_AnimationController_nCreate()
+{
+    KNI_ReturnInt(M3G_NEW("AnimationController",
+                          m3gCreateAnimationController(m3gPspPeekInterface())));
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_AnimationController_nSetActiveInterval()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetActiveInterval((M3GAnimationController) handle,
+                             KNI_GetParameterAsInt(2),
+                             KNI_GetParameterAsInt(3));
+    }
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_AnimationController_nSetSpeed()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetSpeed((M3GAnimationController) handle,
+                    (M3Gfloat) KNI_GetParameterAsFloat(2),
+                    KNI_GetParameterAsInt(3));
+    }
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_AnimationController_nSetPosition()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetPosition((M3GAnimationController) handle,
+                       (M3Gfloat) KNI_GetParameterAsFloat(2),
+                       KNI_GetParameterAsInt(3));
+    }
+    KNI_ReturnVoid();
+}
+
+KNIEXPORT KNI_RETURNTYPE_VOID
+Java_javax_microedition_m3g_AnimationController_nSetWeight()
+{
+    jint handle = KNI_GetParameterAsInt(1);
+
+    if (handle != 0) {
+        m3gSetWeight((M3GAnimationController) handle,
+                     (M3Gfloat) KNI_GetParameterAsFloat(2));
+    }
+    KNI_ReturnVoid();
 }

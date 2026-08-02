@@ -15,6 +15,22 @@ public class AnimationController extends Object3D {
     private int referenceWorldTime;
 
     public AnimationController() {
+        construct();
+    }
+
+    void createDeferred() {
+        handle = nCreate();
+        register();
+    }
+
+    void applyDeferred() {
+        /* Speed first, position last: the engine re-anchors its position
+         * reference on every speed change, so pushing the position
+         * afterwards leaves exactly the mirrored state. */
+        nSetSpeed(handle, speed, referenceWorldTime);
+        nSetPosition(handle, referenceSequenceTime, referenceWorldTime);
+        nSetActiveInterval(handle, activeIntervalStart, activeIntervalEnd);
+        nSetWeight(handle, weight);
     }
 
     public void setActiveInterval(int start, int end) {
@@ -23,6 +39,9 @@ public class AnimationController extends Object3D {
         }
         activeIntervalStart = start;
         activeIntervalEnd = end;
+        if (handle != 0) {
+            nSetActiveInterval(handle, start, end);
+        }
     }
 
     public int getActiveIntervalStart() { return activeIntervalStart; }
@@ -31,6 +50,9 @@ public class AnimationController extends Object3D {
     public void setSpeed(float speed, int worldTime) {
         this.speed = speed;
         this.referenceWorldTime = worldTime;
+        if (handle != 0) {
+            nSetSpeed(handle, speed, worldTime);
+        }
     }
 
     public float getSpeed() {
@@ -40,6 +62,9 @@ public class AnimationController extends Object3D {
     public void setPosition(float sequenceTime, int worldTime) {
         this.referenceSequenceTime = sequenceTime;
         this.referenceWorldTime = worldTime;
+        if (handle != 0) {
+            nSetPosition(handle, sequenceTime, worldTime);
+        }
     }
 
     public float getPosition(int worldTime) {
@@ -52,6 +77,9 @@ public class AnimationController extends Object3D {
             throw new IllegalArgumentException("weight must be >= 0");
         }
         this.weight = weight;
+        if (handle != 0) {
+            nSetWeight(handle, weight);
+        }
     }
 
     public float getWeight() {
@@ -61,4 +89,15 @@ public class AnimationController extends Object3D {
     public int getRefWorldTime() {
         return referenceWorldTime;
     }
+
+    /* Natives; see jsr184/src/native/m3g_object_kni.c. */
+
+    private static native int nCreate();
+    private static native void nSetActiveInterval(int handle, int start,
+                                                  int end);
+    private static native void nSetSpeed(int handle, float speed,
+                                         int worldTime);
+    private static native void nSetPosition(int handle, float sequenceTime,
+                                            int worldTime);
+    private static native void nSetWeight(int handle, float weight);
 }
