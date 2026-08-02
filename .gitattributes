@@ -19,3 +19,9 @@ Makefile    text eol=lf
 # So are the M3G native sources
 m3g/**/*.c  eol=lf
 m3g/**/*.h  eol=lf
+
+# ...and the JSR 184 natives, which are copied into the phoneME tree and built
+# there. Left to text=auto they come out CRLF on a Windows checkout, which the
+# container's build then has to tolerate for no reason.
+jsr184/**/*.c  eol=lf
+jsr184/**/*.h  eol=lf

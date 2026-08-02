@@ -6,8 +6,6 @@
 /m3gcore/
 /pspgl/
 
-/.debug/
-
 # --- Build artifacts ---------------------------------------------------------
 *.o
 *.a
@@ -23,16 +21,17 @@ PARAM.SFO
 /m3g/test/m3g_render_test
 /build/
 /dist/
+
+# Local disposable build tree (mounted into the container)
+/build-src/
+
+# --- Emulators and reference runtimes kept beside the project for testing ----
+# Large third-party trees; not ours to redistribute.
 /ppsspp_win/
-/working pspkvm/
 /ke_emulator/
+/working pspkvm/
 
 # --- OS / editor -------------------------------------------------------------
 .DS_Store
 Thumbs.db
 *.swp
-
-# Local disposable build tree (mounted into the container)
-/build-src/
-
-# Dead-end diagnostic patches kept locally for reference only
