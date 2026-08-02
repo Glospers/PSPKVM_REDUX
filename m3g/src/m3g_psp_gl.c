@@ -523,6 +523,271 @@ extern void __real___pspgl_ge_vertex_fmt(void *ctx,
  * extra float stores per frame.
  */
 
+/*
+ * GL_FIXED positions.
+ *
+ * pspgl's glVertexPointer accepts BYTE, SHORT and FLOAT and rejects
+ * GL_FIXED with INVALID_ENUM -- the pointer is never latched.  m3gcore
+ * uses fixed-point positions in exactly two places, and they are load-
+ * bearing: the Background image quad (m3g_background.c:218) and Sprite3D
+ * (m3g_sprite.c:489).  Every frame the background should have covered,
+ * it instead left the previous frame in place -- the trails -- and what
+ * did rasterise used whatever vertex pointer was latched last: the giant
+ * garbage triangles.  The wrap below re-declares the array as FLOAT
+ * (identical 4-byte layout, so the stride math is unchanged) and flags
+ * it; the format hook then converts 16.16 to float per vertex through
+ * the same path that promotes byte and short arrays.
+ */
+/*
+ * Palettised textures.
+ *
+ * m3gcore uploads palettised images through the OES compressed-palette
+ * formats (m3g_image.inl:177: GL_PALETTE8_RGB8_OES / _RGBA8_OES, level 0,
+ * palette prepended to the indices).  pspgl's glCompressedTexImage2D
+ * understands DXT1/3/5 and nothing else, so every palettised texture in a
+ * title dies at commit with INVALID_ENUM -- and m3gcore then invalidates
+ * the texture and skips or garbage-renders whatever wore it.  That was
+ * the Background image (never drawn: white sky, nothing covering the
+ * previous frame) and assorted station tiles (stale-memory noise).
+ *
+ * The wrap expands indices through the palette into plain RGB/RGBA bytes
+ * and hands the result to glTexImage2D, which pspgl converts natively.
+ * The palette length is recovered from imageSize, which the engine sets
+ * to indices + palette exactly.
+ */
+extern void __real_glCompressedTexImage2D(GLenum target, GLint level,
+                                          GLenum internalformat,
+                                          GLsizei width, GLsizei height,
+                                          GLint border, GLsizei imageSize,
+                                          const void *data);
+
+/* TEMPORARY -- the per-texture upload map.  Some textures commit and some
+ * die (white dome, noise tiles) and every format theory so far has been
+ * guesswork; one line per upload with the format and the error ends
+ * that. */
+static void m3gPspTexLog(const char *who, unsigned int ifmt,
+                         unsigned int fmt, unsigned int type,
+                         int w, int h, int extra)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    extern unsigned int __real_glGetError(void);
+    static int logged;
+    if (logged < 80 && javacall_diag_log != 0) {
+        char line[128];
+        logged++;
+        sprintf(line, "M3G: %s ifmt=0x%x fmt=0x%x type=0x%x %dx%d x=%d"
+                " err=0x%x\n",
+                who, ifmt, fmt, type, w, h, extra, __real_glGetError());
+        javacall_diag_log(line);
+    }
+}
+
+/* TEMPORARY -- the clear census.  No Fog objects exist in the whole
+ * title, so the orange behind the translucent sky rows must be the
+ * BACKGROUND COLOR CLEAR, animated by depth.  Log every glClear with
+ * the latched clear color: never-runs = the game's background is
+ * detached or clear disabled; wrong color = the setColor path; right
+ * color = the clear is overwritten later and the hunt moves on. */
+static unsigned int s_clearRGBA;
+
+extern void __real_glClearColor(GLclampf r, GLclampf g, GLclampf b,
+                                GLclampf a);
+extern void __real_glClear(GLbitfield mask);
+
+void __wrap_glClearColor(GLclampf r, GLclampf g, GLclampf b, GLclampf a)
+{
+    s_clearRGBA = ((unsigned int) (r * 255.0f) << 16)
+                | ((unsigned int) (g * 255.0f) << 8)
+                | (unsigned int) (b * 255.0f)
+                | ((unsigned int) (a * 255.0f) << 24);
+    __real_glClearColor(r, g, b, a);
+}
+
+void __wrap_glClear(GLbitfield mask)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static int logged;
+    __real_glClear(mask);
+    if (logged < 30 && javacall_diag_log != 0) {
+        char line[80];
+        logged++;
+        sprintf(line, "M3G: clear mask=0x%x argb=0x%08x\n",
+                (unsigned int) mask, s_clearRGBA);
+        javacall_diag_log(line);
+    }
+}
+
+/* TEMPORARY -- does the engine ever CONFIGURE fog?  Every sampled draw
+ * runs fog=0; underwater the title fogs everything (the orange behind
+ * the translucent sky rows, and the per-frame coverage that kills
+ * trails).  If these never log, no appearance has a Fog engine-side and
+ * the loss is upstream; if they log, the enable is being dropped. */
+extern void __real_glFogf(GLenum pname, GLfloat param);
+extern void __real_glFogfv(GLenum pname, const GLfloat *params);
+
+void __wrap_glFogf(GLenum pname, GLfloat param)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static int logged;
+    __real_glFogf(pname, param);
+    if (logged < 12 && javacall_diag_log != 0) {
+        char line[80];
+        logged++;
+        sprintf(line, "M3G: fogf pname=0x%x v=%d\n",
+                (unsigned int) pname, (int) param);
+        javacall_diag_log(line);
+    }
+}
+
+void __wrap_glFogfv(GLenum pname, const GLfloat *params)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static int logged;
+    __real_glFogfv(pname, params);
+    if (logged < 12 && javacall_diag_log != 0) {
+        char line[96];
+        logged++;
+        sprintf(line, "M3G: fogfv pname=0x%x v0=%d v1=%d v2=%d\n",
+                (unsigned int) pname,
+                (params != 0) ? (int) (params[0] * 255.0f) : -1,
+                (params != 0) ? (int) (params[1] * 255.0f) : -1,
+                (params != 0) ? (int) (params[2] * 255.0f) : -1);
+        javacall_diag_log(line);
+    }
+}
+
+/* The bind side of the census: which texture objects the engine touches
+ * per frame.  Three uploads for a whole world means the file-native
+ * textures never commit; whether their texture objects are at least
+ * BOUND (commit path breaks after bind) or never bound at all (the
+ * appearance lost its texture upstream) is the next fork. */
+extern void __real_glBindTexture(GLenum target, GLuint texture);
+
+void __wrap_glBindTexture(GLenum target, GLuint texture)
+{
+    extern void javacall_diag_log(const char *s) __attribute__((weak));
+    static unsigned int seen[32];
+    static int seenCount;
+    static int logged;
+    int i;
+
+    __real_glBindTexture(target, texture);
+
+    if (javacall_diag_log == 0 || logged >= 40) {
+        return;
+    }
+    for (i = 0; i < seenCount; ++i) {
+        if (seen[i] == texture) {
+            return;             /* only first sighting of each name */
+        }
+    }
+    if (seenCount < 32) {
+        seen[seenCount++] = texture;
+    }
+    {
+        char line[80];
+        logged++;
+        sprintf(line, "M3G: bindtex first name=%u\n", texture);
+        javacall_diag_log(line);
+    }
+}
+
+extern void __real_glTexImage2D(GLenum target, GLint level,
+                                GLint internalformat, GLsizei width,
+                                GLsizei height, GLint border, GLenum format,
+                                GLenum type, const void *pixels);
+
+void __wrap_glTexImage2D(GLenum target, GLint level, GLint internalformat,
+                         GLsizei width, GLsizei height, GLint border,
+                         GLenum format, GLenum type, const void *pixels)
+{
+    __real_glTexImage2D(target, level, internalformat, width, height,
+                        border, format, type, pixels);
+    if (level == 0) {
+        m3gPspTexLog("tex", (unsigned int) internalformat,
+                     (unsigned int) format, (unsigned int) type,
+                     (int) width, (int) height, 0);
+    }
+}
+
+void __wrap_glCompressedTexImage2D(GLenum target, GLint level,
+                                   GLenum internalformat,
+                                   GLsizei width, GLsizei height,
+                                   GLint border, GLsizei imageSize,
+                                   const void *data)
+{
+    m3gPspTexLog("ctex", (unsigned int) internalformat, 0, 0,
+                 (int) width, (int) height, (int) imageSize);
+    if ((internalformat == 0x8B95 /* GL_PALETTE8_RGB8_OES  */
+         || internalformat == 0x8B96 /* GL_PALETTE8_RGBA8_OES */)
+        && data != NULL && width > 0 && height > 0
+        && imageSize > width * height) {
+        const int hasAlpha = (internalformat == 0x8B96);
+        const int entry = hasAlpha ? 4 : 3;
+        const GLsizei paletteBytes = imageSize - width * height;
+        const unsigned char *pal = (const unsigned char *) data;
+        const unsigned char *idx = pal + paletteBytes;
+        const int maxEntry = (int) (paletteBytes / entry);
+        unsigned char *out = (unsigned char *)
+            malloc((size_t) width * (size_t) height * (size_t) entry);
+
+        if (out != NULL && maxEntry > 0) {
+            int i;
+            const int n = width * height;
+            for (i = 0; i < n; ++i) {
+                int e = idx[i];
+                const unsigned char *src;
+                unsigned char *dst = out + (size_t) i * entry;
+                if (e >= maxEntry) {
+                    e = maxEntry - 1;
+                }
+                src = pal + (size_t) e * entry;
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = src[2];
+                if (hasAlpha) {
+                    dst[3] = src[3];
+                }
+            }
+            glTexImage2D(target, level, hasAlpha ? GL_RGBA : GL_RGB,
+                         width, height, 0, hasAlpha ? GL_RGBA : GL_RGB,
+                         GL_UNSIGNED_BYTE, out);
+            free(out);
+            return;
+        }
+        free(out);
+    }
+    __real_glCompressedTexImage2D(target, level, internalformat,
+                                  width, height, border, imageSize, data);
+}
+
+static int s_vertexArrayFixed;
+
+extern void __real_glVertexPointer(GLint size, GLenum type, GLsizei stride,
+                                   const GLvoid *pointer);
+
+void __wrap_glVertexPointer(GLint size, GLenum type, GLsizei stride,
+                            const GLvoid *pointer)
+{
+    if (type == 0x140C /* GL_FIXED */) {
+        s_vertexArrayFixed = 1;
+        __real_glVertexPointer(size, GL_FLOAT, stride, pointer);
+        return;
+    }
+    s_vertexArrayFixed = 0;
+    __real_glVertexPointer(size, type, stride, pointer);
+}
+
+static void m3gCvtFixed3ToFloat3(void *to, const void *from, const void *a)
+{
+    const int *s = (const int *) from;
+    float *d = (float *) to;
+    (void) a;
+    d[0] = (float) s[0] * (1.0f / 65536.0f);
+    d[1] = (float) s[1] * (1.0f / 65536.0f);
+    d[2] = (float) s[2] * (1.0f / 65536.0f);
+}
+
 static void m3gCvtShort3ToFloat3(void *to, const void *from, const void *a)
 {
     const short *s = (const short *) from;
@@ -607,6 +872,13 @@ void __wrap___pspgl_ge_vertex_fmt(void *ctx,
             *((unsigned char *) attr->array + 16) = 0;
             hw = (hw & ~(3u << 7)) | (3u << 7);
         }
+        else if (t == 3 && s_vertexArrayFixed) {
+            /* Declared FLOAT by the wrap above, actually 16.16 fixed. */
+            struct m3gPspGlAttrib *attr = &vfmt->attribs[attrIndex];
+            attr->convert = (void *) m3gCvtFixed3ToFloat3;
+            attr->size = 3 * 4;
+            *((unsigned char *) attr->array + 16) = 0;
+        }
     }
 
     vfmt->hwformat = hw;
@@ -675,30 +947,41 @@ static void m3gPspDrawWindow(int count)
     extern void *__pspgl_curctx;
     extern void javacall_diag_log(const char *s) __attribute__((weak));
     static int frameNo;
-    static int budgetEarly = 70;
-    static int budgetLate  = 70;
-    int *budget;
+    static int lastArmed = -1;
+    static int budget;
+    static int cycles;
 
     if (m3gPspDrawCalls == 1) {
         frameNo++;
     }
-    if (javacall_diag_log == 0 || __pspgl_curctx == 0) {
+    if (javacall_diag_log == 0 || __pspgl_curctx == 0 || cycles >= 8) {
         return;
     }
-    /* Separate budgets: one block spans 64 frames of draws, so a shared
-     * budget would be gone long before the late window opened. */
-    if (frameNo == 4)      { budget = &budgetEarly; }
-    else if (frameNo == 9) { budget = &budgetLate; }
-    else                   { return; }
+    /* A window every 25 blocks (~27 s of play), one block long, so some
+     * window lands while the identity-leak scene is actually on screen --
+     * boot-only windows kept photographing the menu.  Each window gets a
+     * fresh budget; eight windows a session. */
+    if ((frameNo % 25) == 4) {
+        if (frameNo != lastArmed) {
+            lastArmed = frameNo;
+            budget = 60;
+            cycles++;
+        }
+    }
+    else {
+        return;
+    }
 
-    if (*budget > 0) {
+    if (budget > 0) {
         const unsigned int *reg =
             (const unsigned int *) ((char *) __pspgl_curctx + 8);
         char line[120];
-        (*budget)--;
-        sprintf(line, "M3G: dw f=%d i=%d n=%d vt=%06x tex=%d tbp=%06x\n",
+        budget--;
+        sprintf(line, "M3G: dw f=%d i=%d n=%d vt=%06x tex=%d tbp=%06x"
+                " bl=%d te=%06x mc=%06x\n",
                 frameNo, m3gPspDrawCalls, count,
-                reg[0x12] & 0xFFFFFF, reg[0x1E] & 1, reg[0xA0] & 0xFFFFFF);
+                reg[0x12] & 0xFFFFFF, reg[0x1E] & 1, reg[0xA0] & 0xFFFFFF,
+                reg[0x21] & 1, reg[0xC9] & 0xFFFFFF, reg[0x55] & 0xFFFFFF);
         javacall_diag_log(line);
     }
 }

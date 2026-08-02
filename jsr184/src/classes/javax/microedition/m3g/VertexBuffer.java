@@ -42,8 +42,33 @@ public class VertexBuffer extends Object3D {
             positionScaleBias[3] = bias[2];
         }
         if (handle != 0) {
-            nSetPositions(handle, (positions != null) ? positions.handle : 0,
-                          scale, bias);
+            if (positions != null && positions.handle == 0) {
+                /* The last unguarded setter family.  A title that builds a
+                 * fresh array during loading and hands it to a LIVE loaded
+                 * buffer forwarded a zero handle here -- for this title
+                 * that was the sky dome's dynamic colour array: the warm
+                 * gradient existed, was updated every frame, and was never
+                 * attached, so the dome drew colourless.  See
+                 * Object3D.linkLater. */
+                final VertexArray fArray = positions;
+                final float fScale = scale;
+                final float[] fBias = (bias != null)
+                    ? new float[] { bias[0], bias[1], bias[2] } : null;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fArray.handle != 0
+                                && VertexBuffer.this.positions == fArray) {
+                            nSetPositions(handle, fArray.handle,
+                                          fScale, fBias);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetPositions(handle,
+                              (positions != null) ? positions.handle : 0,
+                              scale, bias);
+            }
         }
     }
 
@@ -57,7 +82,20 @@ public class VertexBuffer extends Object3D {
     public void setNormals(VertexArray normals) {
         this.normals = normals;
         if (handle != 0) {
-            nSetNormals(handle, (normals != null) ? normals.handle : 0);
+            if (normals != null && normals.handle == 0) {
+                final VertexArray fArray = normals;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fArray.handle != 0
+                                && VertexBuffer.this.normals == fArray) {
+                            nSetNormals(handle, fArray.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetNormals(handle, (normals != null) ? normals.handle : 0);
+            }
         }
     }
 
@@ -68,7 +106,22 @@ public class VertexBuffer extends Object3D {
     public void setColors(VertexArray colors) {
         this.colors = colors;
         if (handle != 0) {
-            nSetColors(handle, (colors != null) ? colors.handle : 0);
+            if (colors != null && colors.handle == 0) {
+                /* The sky dome's warm gradient came through here and was
+                 * dropped; see setPositions above. */
+                final VertexArray fArray = colors;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fArray.handle != 0
+                                && VertexBuffer.this.colors == fArray) {
+                            nSetColors(handle, fArray.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetColors(handle, (colors != null) ? colors.handle : 0);
+            }
         }
     }
 
@@ -89,9 +142,32 @@ public class VertexBuffer extends Object3D {
             }
         }
         if (handle != 0) {
-            nSetTexCoords(handle, index,
-                          (texCoords != null) ? texCoords.handle : 0,
-                          scale, bias);
+            if (texCoords != null && texCoords.handle == 0) {
+                final VertexArray fArray = texCoords;
+                final int fIndex = index;
+                final float fScale = scale;
+                /* No Object.clone() on CLDC; copy by hand. */
+                float[] biasCopy = null;
+                if (bias != null) {
+                    biasCopy = new float[bias.length];
+                    System.arraycopy(bias, 0, biasCopy, 0, bias.length);
+                }
+                final float[] fBias = biasCopy;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fArray.handle != 0
+                                && VertexBuffer.this.texCoords[fIndex] == fArray) {
+                            nSetTexCoords(handle, fIndex, fArray.handle,
+                                          fScale, fBias);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetTexCoords(handle, index,
+                              (texCoords != null) ? texCoords.handle : 0,
+                              scale, bias);
+            }
         }
     }
 
@@ -105,8 +181,19 @@ public class VertexBuffer extends Object3D {
         return texCoords[index];
     }
 
+    /** TEMPORARY -- diagnostic budget for the tint trace below. */
+    private static int colorDiagLeft = 10;
+
     public void setDefaultColor(int ARGB) {
         this.defaultColor = ARGB;
+        if ((ARGB & 0x00FFFFFF) != 0x00FFFFFF && colorDiagLeft > 0) {
+            /* Only non-white tints: the first trace burned its budget on
+             * load-time white and would have missed the depth tinting
+             * that happens during play. */
+            colorDiagLeft--;
+            Object3D.nDiag(-12, ARGB);
+            Object3D.nDiag(-13, (handle != 0) ? 1 : 0);
+        }
         if (handle != 0) {
             nSetDefaultColor(handle, ARGB);
         }

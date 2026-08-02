@@ -14,7 +14,7 @@ index 005a2368..502e6ac5 100644
 +# behind a $gp-correcting trampoline; open_file also re-asserts Timidity's
 +# ctl and carries the one-shot gp log.  Implementations in javacall
 +# .../jsr135_mmapi/multimedia.c (patch 0053).
-+LDFLAGS += -Wl,--wrap,open_file
++LDFLAGS += -Wl,--wrap,open_file -Wl,--wrap,glVertexPointer -Wl,--wrap,glCompressedTexImage2D -Wl,--wrap,glTexImage2D -Wl,--wrap,glBindTexture -Wl,--wrap,glFogf -Wl,--wrap,glFogfv -Wl,--wrap,glClear -Wl,--wrap,glClearColor
 +LDFLAGS += -Wl,--wrap,SDL_Init -Wl,--wrap,SDL_Quit -Wl,--wrap,SDL_GetError -Wl,--wrap,SDL_RWFromMem -Wl,--wrap,SDL_RWFromFile
 +LDFLAGS += -Wl,--wrap,Mix_AllocateChannels -Wl,--wrap,Mix_ChannelFinished -Wl,--wrap,Mix_CloseAudio -Wl,--wrap,Mix_FreeChunk -Wl,--wrap,Mix_FreeMusic -Wl,--wrap,Mix_HaltChannel -Wl,--wrap,Mix_HookMusicFinished -Wl,--wrap,Mix_LoadMUS -Wl,--wrap,Mix_LoadMUS_RW -Wl,--wrap,Mix_LoadWAV_RW -Wl,--wrap,Mix_OpenAudio -Wl,--wrap,Mix_Pause -Wl,--wrap,Mix_PauseMusic -Wl,--wrap,Mix_PlayChannelTimed -Wl,--wrap,Mix_PlayMusic -Wl,--wrap,Mix_ResumeMusic -Wl,--wrap,Mix_QuerySpec
  LIBS := -Wl,--start-group -Wl,--whole-archive -lm3g -Wl,--no-whole-archive -lmidp$(g) -lcldc_vm$(cg) -lstdc++ -lpcsl_file -lpcsl_print -lpcsl_memory -lpcsl_string -lpcsl_network -ljavacall$(g) $(LIBS)

@@ -49,7 +49,26 @@ public class Background extends Object3D {
             cropHeight = image.getHeight();
         }
         if (handle != 0) {
-            nSetImage(handle, (image != null) ? image.handle : 0);
+            if (image != null && image.handle == 0) {
+                /* The one setter the deferred-link sweep missed: a title
+                 * attaching its sky image during loading forwarded a zero
+                 * handle, the engine background stayed imageless, and the
+                 * background-image quad was never drawn at all -- no sky,
+                 * and nothing repainting the frame behind the scene.  See
+                 * Object3D.linkLater. */
+                final Image2D fImage = image;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fImage.handle != 0
+                                && Background.this.image == fImage) {
+                            nSetImage(handle, fImage.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetImage(handle, (image != null) ? image.handle : 0);
+            }
         }
     }
 
@@ -107,6 +126,29 @@ public class Background extends Object3D {
     }
 
     public boolean isDepthClearEnabled() { return depthClearEnabled; }
+
+    /**
+     * Pushes every mirrored field into the engine object.
+     *
+     * Called by Graphics3D.clear before each per-frame clear: some link in
+     * the deferred plumbing has repeatedly lost parts of this state (the
+     * gameplay clears ran depth-only with no image), and re-asserting the
+     * Java mirror -- a handful of trivial setters -- makes the mirror
+     * authoritative no matter which path dropped what.
+     */
+    void reassert() {
+        if (handle == 0) {
+            return;
+        }
+        nSetColor(handle, color);
+        nSetImageMode(handle, imageModeX, imageModeY);
+        nSetCrop(handle, cropX, cropY, cropWidth, cropHeight);
+        nSetEnable(handle, ENABLE_COLOR_CLEAR, colorClearEnabled ? 1 : 0);
+        nSetEnable(handle, ENABLE_DEPTH_CLEAR, depthClearEnabled ? 1 : 0);
+        if (image != null && image.handle != 0) {
+            nSetImage(handle, image.handle);
+        }
+    }
 
     void applyDeferred() {
         nSetColor(handle, color);

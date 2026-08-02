@@ -51,7 +51,23 @@ public class Sprite3D extends Node {
         }
         this.image = image;
         if (handle != 0) {
-            nSetImage(handle, image.handle);
+            if (image.handle == 0) {
+                /* Same hole as Background.setImage: a deferred image into a
+                 * live sprite forwarded zero and stripped it.  See
+                 * Object3D.linkLater. */
+                final Image2D fImage = image;
+                Object3D.linkLater(new Runnable() {
+                    public void run() {
+                        if (fImage.handle != 0
+                                && Sprite3D.this.image == fImage) {
+                            nSetImage(handle, fImage.handle);
+                        }
+                    }
+                });
+            }
+            else {
+                nSetImage(handle, image.handle);
+            }
         }
     }
 

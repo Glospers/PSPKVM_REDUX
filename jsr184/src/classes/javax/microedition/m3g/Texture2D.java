@@ -107,8 +107,18 @@ public class Texture2D extends Transformable {
     public int getWrappingS() { return wrappingS; }
     public int getWrappingT() { return wrappingT; }
 
+    /** TEMPORARY -- trace budget for the blend-mode requests below. */
+    private static int blendDiagLeft = 12;
+
     public void setBlending(int func) {
         this.blending = func;
+        if (blendDiagLeft > 0) {
+            blendDiagLeft--;
+            /* Which textures the title asks to MODULATE (tint-capable)
+             * versus REPLACE; the dome's mode decides whether the warm
+             * default-colour tint can reach the screen at all. */
+            Object3D.nDiag(-14, func);
+        }
         if (handle != 0) {
             nSetBlending(handle, func);
         }
