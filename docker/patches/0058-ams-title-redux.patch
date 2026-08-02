@@ -1,0 +1,13 @@
+diff --git a/midp/src/configuration/configuration_xml/share/l10n/en-US.xml b/midp/src/configuration/configuration_xml/share/l10n/en-US.xml
+index e5de5d4d..a6da4465 100644
+--- a/midp/src/configuration/configuration_xml/share/l10n/en-US.xml
++++ b/midp/src/configuration/configuration_xml/share/l10n/en-US.xml
+@@ -297,7 +297,7 @@
+ <localized_string Key="AMS_SUITES_TO_BE_DISABLED"
+                 Value="This action will disable these applications:&#010;&#010;"/>
+ <localized_string Key="AMS_MGR_TITLE"
+-                  Value="PSPKVM - http://www.pspkvm.org"/>
++                  Value="PSPKVM REDUX - github.com/Glospers/PSPKVM_REDUX"/>
+ <localized_string Key="AMS_MGR_SETTINGS"
+                 Value="Settings"/>
+ <localized_string Key="AMS_MGR_PREFERENCES"

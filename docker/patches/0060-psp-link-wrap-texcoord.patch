@@ -1,0 +1,12 @@
+diff --git a/psp/Makefile b/psp/Makefile
+index 23d92730..fc2cd44e 100644
+--- a/psp/Makefile
++++ b/psp/Makefile
+@@ -44,6 +44,7 @@ LDFLAGS += -Wl,--wrap,eglChooseConfig -Wl,--wrap,eglCreatePbufferSurface -Wl,--w
+ LDFLAGS += -Wl,--wrap,open_file -Wl,--wrap,glVertexPointer -Wl,--wrap,glCompressedTexImage2D -Wl,--wrap,glTexImage2D -Wl,--wrap,glBindTexture -Wl,--wrap,glFogf -Wl,--wrap,glFogfv -Wl,--wrap,glClear -Wl,--wrap,glClearColor
+ LDFLAGS += -Wl,--wrap,SDL_Init -Wl,--wrap,SDL_Quit -Wl,--wrap,SDL_GetError -Wl,--wrap,SDL_RWFromMem -Wl,--wrap,SDL_RWFromFile
+ LDFLAGS += -Wl,--wrap,Mix_AllocateChannels -Wl,--wrap,Mix_ChannelFinished -Wl,--wrap,Mix_CloseAudio -Wl,--wrap,Mix_FreeChunk -Wl,--wrap,Mix_FreeMusic -Wl,--wrap,Mix_HaltChannel -Wl,--wrap,Mix_HookMusicFinished -Wl,--wrap,Mix_LoadMUS -Wl,--wrap,Mix_LoadMUS_RW -Wl,--wrap,Mix_LoadWAV_RW -Wl,--wrap,Mix_OpenAudio -Wl,--wrap,Mix_Pause -Wl,--wrap,Mix_PauseMusic -Wl,--wrap,Mix_PlayChannelTimed -Wl,--wrap,Mix_PlayMusic -Wl,--wrap,Mix_ResumeMusic -Wl,--wrap,Mix_QuerySpec
++LDFLAGS += -Wl,--wrap,glTexCoordPointer
+ LIBS := -Wl,--start-group -Wl,--whole-archive -lm3g -Wl,--no-whole-archive -lmidp$(g) -lcldc_vm$(cg) -lstdc++ -lpcsl_file -lpcsl_print -lpcsl_memory -lpcsl_string -lpcsl_network -ljavacall$(g) $(LIBS)
+ 
+ EXTRA_TARGETS = EBOOT.PBP 

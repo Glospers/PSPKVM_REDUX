@@ -177,7 +177,15 @@ M3Gint m3gPspBindMemoryTarget(void *pixels,
     /* The JSR-184 hint bits and the engine's mode bits are the same values
      * (M3G/m3g_core.h:433-436 against the constants in Graphics3D), so they
      * pass straight through.  A rejected hint is not an error: the
-     * specification allows an implementation to ignore any of them. */
+     * specification allows an implementation to ignore any of them.
+     *
+     * OVERWRITE must NOT be forced on here.  Doing that (tried 2026-08-02)
+     * stops the engine blitting the target's prior content into the back
+     * buffer, which saves a full-frame upload per frame -- and breaks this
+     * title outright: it paints its warm radiation gradient as 2D bands
+     * BEFORE bindTarget and expects the 3D to composite over them, so the
+     * hue vanished, and without that opaque backdrop covering the frame the
+     * motion trails came back.  2D-under-3D is real and load-bearing. */
     m3gSetRenderHints(ctx, (M3Gbitmask) hints);
 
     /* userHandle 0: it is only used to key the GL surface cache and the

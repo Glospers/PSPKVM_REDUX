@@ -184,27 +184,11 @@ public final class Graphics3D {
     public float getDepthRangeNear() { return depthRangeNear; }
     public float getDepthRangeFar()  { return depthRangeFar; }
 
-    /** TEMPORARY -- budget for the clear-state diagnostic below. */
-    private static int clearDiagLeft = 6;
-
     public void clear(Background background) {
         checkBound();
         if (nativeBound) {
             if (background != null) {
                 background.reassert();
-            }
-            if (clearDiagLeft > 0) {
-                clearDiagLeft--;
-                /* -10: 0 none, 1 no image, 2 image deferred, 3 image live.
-                 * -11: colour-clear flag in bit 0, colour's RGB above it. */
-                Object3D.nDiag(-10, (background == null) ? 0
-                        : ((background.getImage() == null) ? 1
-                        : ((background.getImage().handle == 0) ? 2 : 3)));
-                if (background != null) {
-                    Object3D.nDiag(-11,
-                            (background.isColorClearEnabled() ? 1 : 0)
-                            | (background.getColor() & 0xFFFFFF00));
-                }
             }
             nClear(background != null ? background.handle : 0);
         }

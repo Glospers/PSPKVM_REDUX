@@ -181,18 +181,8 @@ public class VertexBuffer extends Object3D {
         return texCoords[index];
     }
 
-    /** TEMPORARY -- diagnostic budget for the tint trace below. */
-    private static int colorDiagLeft = 24;
-
     public void setDefaultColor(int ARGB) {
         this.defaultColor = ARGB;
-        if (colorDiagLeft > 0) {
-            /* Every call this time, whites included: KEmulator's dome is
-             * warm-tinted where ours computes... something.  Whether the
-             * game ever REQUESTS the warm value is the whole question. */
-            colorDiagLeft--;
-            Object3D.nDiag(-15, ARGB);
-        }
         if (handle != 0) {
             nSetDefaultColor(handle, ARGB);
         }
