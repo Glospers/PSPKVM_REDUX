@@ -1,133 +1,156 @@
-# PSPKVM REDUX
+# PSPKVM REDUX 3D
 
-Adding **Mobile 3D Graphics (JSR-184 / M3G)** support to **PSPKVM**, the
-open-source Java ME (phoneME Feature / CLDC + MIDP) runtime for the Sony PSP.
+Java ME for the PSP, with the 3D API actually implemented.
 
-PSPKVM lets the PSP run J2ME MIDlets, but it never implemented the M3G 3D API —
-it's listed as an unimplemented `TODO` in the upstream source. Any J2ME game that
-uses M3G for 3D rendering (Deep 3D: Submarine Odyssey, Galaxy on Fire, most
-Gameloft 3D mobile titles of ~2006–2010) therefore hangs on its loading screen.
-This project implements JSR-184 so those games run on real PSP hardware.
+PSPKVM is an old open-source J2ME runtime for the PSP. It runs ordinary MIDlets
+fine, but it never implemented JSR-184 (M3G) — the 3D graphics API — so every
+3D phone game of the mid-2000s just hangs on its loading screen. That's the gap
+this fills.
 
-The PSP has a fixed-function 3D GPU (`sceGu`, roughly OpenGL 1.x-class) that is
-more than capable of the workloads these phone-era games were designed for — so
-the work is a porting problem, not a performance one.
+The PSP's GPU is fixed-function and roughly OpenGL 1.x class, which is far more
+than these phone games ever asked for. So this was never a performance problem;
+it was a plumbing problem.
 
-## Status
+## What works
 
-**M3G games run.** Deep 3D: Submarine Odyssey plays start to finish — menus, the
-station, gameplay, HUD, music and sound effects — on PPSSPP and on real PSP-2000
-hardware, which behave identically.
+Deep 3D: Submarine Odyssey plays from the menu through to gameplay — the
+station, the sub, the HUD, music, sound effects, saving and loading. Tested on
+**PPSSPP** and on a **real PSP-2000 running ARK-4 CFW**, which behave the same.
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| 0 | Reproducible build of unmodified PSPKVM (Docker + CI) | Done — boots to the app manager; installs, runs and removes MIDlets |
-| 1 | `javax.microedition.m3g` classes + native stubs; reconstruct `M3G/m3g_core.h` | Done — classes load; the header is reconstructed and verified |
-| 2 | Wire in the backend-agnostic core of Nokia's M3G engine | Done — scenes load, animate and render |
-| 3 | GL ES 1.x → `sceGu` rendering shim | Done — via pspgl, built from source with fixes |
-| 4 | Per-game compatibility pass | In progress — frame rate and edge cases |
+That's the honest scope of testing: **one game, one console model.** Other M3G
+titles may work, partly work, or not start. If you try one, I'd like to hear
+either way.
 
-Getting here took a long run of fixes for behaviour that changed in the toolchain
-since 2010 — `lseek`, `fstat`, `access` and `readdir` all misreport on the current
-newlib, so the file and directory layers call the PSP kernel directly — and then a
-second run of fixes in the graphics stack itself. The ones worth naming:
+## Known limitations
 
-- **pspgl is built from source** rather than used as the toolchain's prebuilt
-  `libGL.a`, because the texture matrix could not be kept coherent from outside
-  it. Its lazy matrix cache skips the per-draw compensation it applies for
-  integral texture coordinates, so consecutive draws inherited each other's
-  texture transforms. The texture stack now bypasses that cache entirely.
-- **Register-cache corruption.** This port re-marks pspgl's cached GE registers
-  dirty after every context switch, because PSPKVM drives the same hardware for
-  its own 2D. Marking *all* of them re-issued the recorded draw command, so every
-  mid-frame context switch replayed the previous draw with the next one's
-  matrices. It now uses pspgl's own mask, which deliberately excludes the
-  trigger registers.
-- **Frame delivery costs three CPU passes fewer.** The finished frame is already
-  in the screen's own pixel layout, so it is copied straight out of the read-back
-  cache instead of being expanded to RGBA8, copied by the engine, and packed back
-  down again.
-- **Sound works**: the `.amr` effects are transcoded at install time, and the
-  MIDI path needed both a `$gp` fix for the small-data-addressed SDL_mixer and a
-  full General MIDI patch set.
+Read this before opening an issue.
 
-Frame rate is the current work. It is quantised by the vblank wait in the screen
-flush, so the achievable rates are 60/N — the renderer's remaining cost is being
-cut to move it up a step.
+**Frame rate is low.** Around 15 fps in Deep 3D on the emulator, ~12 on real
+hardware. It is also quantised: the screen flush waits for vblank, so you only
+ever get 60/N — 30, 20, 15, 12, and nothing in between. Getting to the next step
+means fitting the whole frame under 50 ms. A large part of what's left is the
+Java bytecode interpreter, and this VM has no JIT for MIPS (the compiler backend
+in the phoneME source is empty stubs), so desktop emulators with a JIT will
+always be smoother. Work continues, but 30 fps is unlikely.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the full plan and the architecture
-decisions, and [docs/INVESTIGATION.md](docs/INVESTIGATION.md) for the build-system
-and engine analysis that shaped it.
+**AMR sound effects need converting.** AMR-NB is a speech codec the PSP has no
+decoder for — `sceAudiocodec` does ATRAC3, MP3 and AAC and nothing else. Games
+that use `.amr` for effects will be silent until the JAR's audio is converted to
+WAVE with [`tools/amr-to-wav.sh`](tools/amr-to-wav.sh). Music (MIDI) plays
+natively and needs nothing. Teaching the runtime to decode AMR itself is still
+open.
 
-## How it's structured
+**Widescreen is a bad idea for Deep 3D.** At 480x272 the game asks for a much
+wider view than its sky geometry covers, so you see past the edge of the sky and
+the 2D backdrop shows through at the screen edges. It isn't a rendering bug —
+the game was never drawn for that shape, and KEmulator doesn't even offer it.
+Use a 240x320 profile.
 
-This repository is a **build-and-integration harness**, not a fork of the runtime.
-The upstream sources are not vendored; they're fetched fresh at pinned commits and
-modified through discrete patches, keeping a clean line back to upstream.
+**There is a coloured band along the bottom edge on real hardware.** It shows up
+clearly on dark scenes, like the intro cutscene. Not yet fixed; not present on
+the emulator.
+
+**Soft keys need the right device profile.** Deep 3D reads Nokia key codes, so
+pick a Nokia profile or its menu keys do nothing.
+
+## Install
+
+Assumes a PSP already running custom firmware (PRO, ME, ARK-4 — any modern CFW).
+
+1. Download `PSPKVM-REDUX-3D-alpha.zip` from
+   [Releases](https://github.com/Glospers/PSPKVM_REDUX/releases).
+2. Unzip it. You'll get a `PSP` folder.
+3. Plug the PSP in over USB, or put its memory stick in a card reader.
+4. Copy the `PSP` folder onto the **root** of the memory stick and let it merge.
+   You should end up with `ms0:/PSP/GAME/PSPKVM/EBOOT.PBP`.
+5. Copy your game's `.jar` (and `.jad`, if it has one) anywhere on the stick —
+   `ms0:/PSP/` is a good spot.
+6. Eject properly, then launch **PSPKVM REDUX 3D** from the XMB under
+   Game → Memory Stick.
+
+To install a game, once it's running:
+
+7. Choose **Install/Remove MIDlet** → **Install from memory stick**, then pick
+   your `.jar`.
+8. Before launching a 3D game, highlight it and open the menu → **Select
+   device**. Pick a **240x320** profile — Nokia if the game uses soft keys.
+9. Launch it.
+
+Updating later: replace `EBOOT.PBP` only. Everything else — and especially
+`appdb`, which holds your installed games and save files — should be left alone.
+
+## If something goes wrong
+
+The runtime writes a log to `ms0:/pspkvm_vm.log` (the root of the stick, not the
+game folder). If it crashes, exits to the XMB, or misbehaves, that file is the
+first thing worth looking at, and the first thing I'd ask for.
+
+## How this repo is put together
+
+It's a build harness, not a fork. Upstream sources are fetched at pinned commits
+and modified through discrete patches, so the line back to upstream stays clean.
 
 ```
-docker/               Reproducible build environment
-  Dockerfile          Pinned pspdev toolchain + JDK; builds the EBOOT
-  build.sh            In-container build driver
-  patches/            Source patches applied to upstream before building
-  patches-pspgl/      Fixes applied to pspgl, which is rebuilt from source
-  README.md           Environment docs, pinned versions, known risks
-jsr184/               javax.microedition.m3g classes and their KNI natives
-m3g/                  The port itself: reconstructed public header, PSP
-                      platform layer, and the corrections applied to the
-                      GL and EGL calls the engine makes
-.github/workflows/
-  build.yml           CI: fetch pinned source -> build image -> produce EBOOT.PBP
-docs/
-  DESIGN.md           Goals, phased plan, locked architecture decisions
-  INVESTIGATION.md    PSPKVM build system + M3G engine analysis, licensing
-LICENSE               GPL-2.0
-CREDITS.md            Upstream projects and authors
+docker/           Reproducible build environment
+  Dockerfile      Pinned toolchain + JDK
+  build.sh        In-container build driver
+  patches/        Patches applied to the PSPKVM source
+  patches-pspgl/  Patches applied to pspgl, which is rebuilt from source
+jsr184/           javax.microedition.m3g classes and their native methods
+m3g/              The port: public header, PSP platform layer, and the
+                  corrections applied to the GL and EGL calls the engine makes
+tools/            amr-to-wav.sh — converts a MIDlet's AMR effects to WAVE
+docs/             Design notes and the original build/engine investigation
 ```
-
-Upstream, fetched at build time:
 
 | Source | Upstream | Pinned commit |
 |--------|----------|---------------|
 | PSPKVM (phoneME port) | [vadosnaprimer/pspkvm](https://github.com/vadosnaprimer/pspkvm) | `15b93ccb82048d4ae12510ef65666bc13c79c252` |
-| M3G core engine | [toaarnio/m3gcore](https://github.com/toaarnio/m3gcore) | `1b921b3ae476b27d7359083babcbfab81d6e532f` |
+| M3G engine | [toaarnio/m3gcore](https://github.com/toaarnio/m3gcore) | `1b921b3ae476b27d7359083babcbfab81d6e532f` |
 | pspgl (GL ES over sceGu) | [pspdev/pspgl](https://github.com/pspdev/pspgl) | `de4260adf56d06516ec46018d404ca77e0b61748` |
 
-## Building
+## Building it yourself
 
-Requires Docker. The image builds natively on both x86_64 and ARM64 (e.g. a
-Raspberry Pi 5) — same commands, host-native toolchain selected automatically.
+Needs Docker, nothing else.
 
 ```sh
-# 1. Fetch the pinned PSPKVM source
 git clone --filter=blob:none https://github.com/vadosnaprimer/pspkvm.git pspkvm
 git -C pspkvm checkout 15b93ccb82048d4ae12510ef65666bc13c79c252
+git clone --filter=blob:none https://github.com/toaarnio/m3gcore.git m3gcore
+git -C m3gcore checkout 1b921b3ae476b27d7359083babcbfab81d6e532f
+git clone --filter=blob:none https://github.com/pspdev/pspgl.git pspgl
+git -C pspgl checkout de4260adf56d06516ec46018d404ca77e0b61748
 
-# 2. Build the environment image (slow, cached)
 docker build -t pspkvm-build ./docker
 
-# 3. Build the EBOOT — source is mounted, output lands in pspkvm/psp/EBOOT.PBP
-docker run --rm -v "$PWD/pspkvm:/work/pspkvm" \
-                -v "$PWD/docker/patches:/work/patches:ro" \
-                pspkvm-build
+docker run --rm \
+  -v "$PWD/pspkvm:/work/pspkvm" \
+  -v "$PWD/docker/patches:/work/patches:ro" \
+  -v "$PWD/docker/patches-pspgl:/work/patches-pspgl:ro" \
+  -v "$PWD/jsr184:/work/components/jsr184:ro" \
+  -v "$PWD/m3g:/work/components/m3g:ro" \
+  -v "$PWD/m3gcore:/work/m3gcore:ro" \
+  -v "$PWD/pspgl:/work/pspgl:ro" \
+  pspkvm-build
 ```
 
-Output: `pspkvm/psp/EBOOT.PBP`. Full pinned versions, rationale, and the known
-2010-source-vs-modern-toolchain risks are in [docker/README.md](docker/README.md).
+The EBOOT lands at `pspkvm/psp/EBOOT.PBP`. CI runs the same build on every push.
+Pinned versions and the known 2010-source-versus-modern-toolchain hazards are in
+[docker/README.md](docker/README.md).
 
-## Licensing
+## A note on the 3D engine
 
-This project builds on **phoneME / PSPKVM**, which is **GPL-2.0**, so this
-repository is licensed **GPL-2.0** as well — see [LICENSE](LICENSE).
+The M3G implementation is Nokia's own engine (`m3gcore`, EPL-1.0), which is
+fetched separately and never modified. It renders through GL ES 1.x, which on
+the PSP means pspgl over `sceGu` — also built from source here, because two
+genuine bugs in its matrix handling had to be fixed to get correct output.
 
-Note that Nokia's M3G engine (`m3gcore`) is licensed under the **Eclipse Public
-License v1.0**, which is not compatible with the GPL. The two source trees can
-coexist, but linking them into a single distributable binary is a licensing
-conflict — this is tracked as an open question in
-[docs/INVESTIGATION.md](docs/INVESTIGATION.md#licensing).
+Note the licence boundary: phoneME/PSPKVM is GPL-2.0 and m3gcore is EPL-1.0.
+Keeping both source trees side by side is fine, and building for yourself is
+fine; the two licences are not compatible for redistributing a single linked
+binary, which is worth knowing if you plan to ship builds.
 
-## Running homebrew on a PSP
+## Licence
 
-PSPKVM is homebrew and will not run on stock retail firmware, which only executes
-signed code. A PSP with 1.50 firmware or custom firmware is required, as with all
-PSP homebrew.
+GPL-2.0, inherited from phoneME/PSPKVM — see [LICENSE](LICENSE).
+Credits to the upstream projects are in [CREDITS.md](CREDITS.md).
