@@ -2,9 +2,12 @@
 # Fetched fresh at the pinned commits (see docs/INVESTIGATION.md and the CI
 # workflow). Kept out of the repo so history stays small and the GPLv2/EPL
 # source boundary stays clean.
-/pspkvm/
-/m3gcore/
-/pspgl/
+/upstream/
+
+# --- Local working area ------------------------------------------------------
+# Build output, deployable trees, test games, emulator and reference runtimes.
+# All generated or third-party; none of it belongs in the repository.
+/workspace/
 
 # --- Build artifacts ---------------------------------------------------------
 *.o
@@ -19,23 +22,9 @@ PARAM.SFO
 /m3g/test/obj/
 /m3g/test/m3g_load_test
 /m3g/test/m3g_render_test
-/build/
-/dist/
-
-# Local disposable build tree (mounted into the container)
-/build-src/
-
-# --- Emulators and reference runtimes kept beside the project for testing ----
-# Large third-party trees; not ours to redistribute.
-/ppsspp_win/
-/ke_emulator/
-/working pspkvm/
 
 # --- OS / editor -------------------------------------------------------------
 .DS_Store
 Thumbs.db
 *.swp
-
-# Release staging area and built archives are generated, not sources.
-/release/
 *.zip

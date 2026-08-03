@@ -101,6 +101,7 @@ m3g/              The port: public header, PSP platform layer, and the
                   corrections applied to the GL and EGL calls the engine makes
 tools/            amr-to-wav.sh — converts a MIDlet's AMR effects to WAVE
 docs/             Design notes and the original build/engine investigation
+upstream/         Pinned source clones, fetched not vendored (not in git)
 ```
 
 | Source | Upstream | Pinned commit |
@@ -114,27 +115,28 @@ docs/             Design notes and the original build/engine investigation
 Needs Docker, nothing else.
 
 ```sh
-git clone --filter=blob:none https://github.com/vadosnaprimer/pspkvm.git pspkvm
-git -C pspkvm checkout 15b93ccb82048d4ae12510ef65666bc13c79c252
-git clone --filter=blob:none https://github.com/toaarnio/m3gcore.git m3gcore
-git -C m3gcore checkout 1b921b3ae476b27d7359083babcbfab81d6e532f
-git clone --filter=blob:none https://github.com/pspdev/pspgl.git pspgl
-git -C pspgl checkout de4260adf56d06516ec46018d404ca77e0b61748
+git clone --filter=blob:none https://github.com/vadosnaprimer/pspkvm.git upstream/pspkvm
+git -C upstream/pspkvm checkout 15b93ccb82048d4ae12510ef65666bc13c79c252
+git clone --filter=blob:none https://github.com/toaarnio/m3gcore.git upstream/m3gcore
+git -C upstream/m3gcore checkout 1b921b3ae476b27d7359083babcbfab81d6e532f
+git clone --filter=blob:none https://github.com/pspdev/pspgl.git upstream/pspgl
+git -C upstream/pspgl checkout de4260adf56d06516ec46018d404ca77e0b61748
 
 docker build -t pspkvm-build ./docker
 
 docker run --rm \
-  -v "$PWD/pspkvm:/work/pspkvm" \
+  -v "$PWD/upstream/pspkvm:/work/pspkvm" \
   -v "$PWD/docker/patches:/work/patches:ro" \
   -v "$PWD/docker/patches-pspgl:/work/patches-pspgl:ro" \
   -v "$PWD/jsr184:/work/components/jsr184:ro" \
   -v "$PWD/m3g:/work/components/m3g:ro" \
-  -v "$PWD/m3gcore:/work/m3gcore:ro" \
-  -v "$PWD/pspgl:/work/pspgl:ro" \
+  -v "$PWD/upstream/m3gcore:/work/m3gcore:ro" \
+  -v "$PWD/upstream/pspgl:/work/pspgl:ro" \
   pspkvm-build
 ```
 
-The EBOOT lands at `pspkvm/psp/EBOOT.PBP`. CI runs the same build on every push.
+The EBOOT lands at `upstream/pspkvm/psp/EBOOT.PBP`. CI runs the same build on
+every push.
 Pinned versions and the known 2010-source-versus-modern-toolchain hazards are in
 [docker/README.md](docker/README.md).
 
