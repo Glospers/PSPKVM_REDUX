@@ -132,9 +132,12 @@ DEFINES     := -DM3G_TARGET_SYMBIAN \
 
 # TEMPORARY -- never enable face culling, to test whether the GL-to-GE flip
 # inverts winding and the whole scene is being culled as back faces. See
-# __wrap_glEnable in src/m3g_psp_gl.c.  (Acquitted: the screen stayed flat
-# blue with culling off. Kept while the raster probe below runs.)
-# DEFINES   += -DM3G_PSP_NO_CULL   (diagnostic, off)
+# __wrap_glEnable in src/m3g_psp_gl.c.  (Acquitted for the whole-scene case:
+# the screen stayed flat blue with culling off. Re-armed for a narrower
+# question -- the sky dome has triangular HOLES that reveal the 2D backdrop
+# behind it, proven by the magenta seed probe, and a dropped triangle in a
+# coarse mesh is exactly what a winding disagreement produces.)
+# DEFINES   += -DM3G_PSP_NO_CULL   (diagnostic, off -- acquitted twice)
 
 # TEMPORARY -- draw one yellow triangle through raw GL each frame, the same
 # usage the spinning-cube demo proved. Separates "pspgl cannot draw into this

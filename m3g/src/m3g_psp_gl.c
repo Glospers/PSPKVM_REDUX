@@ -345,9 +345,11 @@ static void m3gPspProbeInvert(int stride)
     free(probe);
 
     if (javacall_diag_log != 0) {
-        javacall_diag_log(s_invertOn
-                          ? "M3G: readback single-transfer on\n"
-                          : "M3G: readback single-transfer unavailable\n");
+        char line[112];
+        sprintf(line, "M3G: single-transfer %s y=%d surf=%d hint=%d,%d\n",
+                s_invertOn ? "on" : "UNAVAILABLE", s_invertY,
+                m3gPspSurfaceHeight, s_hintY, s_hintH);
+        javacall_diag_log(line);
     }
 }
 
@@ -477,9 +479,14 @@ void m3gPspFrameVerify(const unsigned short *reference, int width, int height)
     }
 
     if (javacall_diag_log != 0) {
-        javacall_diag_log(s_directOn
-                          ? "M3G: direct frame delivery on\n"
-                          : "M3G: direct frame delivery unavailable\n");
+        /* Report the mapping, not just the verdict: a band of wrong pixels
+         * along one edge means the row range is off, and the sign/bias pair
+         * is exactly what decides that. Emulator and hardware can settle on
+         * different pairs. */
+        char line[96];
+        sprintf(line, "M3G: direct delivery %s sign=%d bias=%d h=%d\n",
+                s_directOn ? "on" : "UNAVAILABLE", s_dSign, s_dBias, s_hintH);
+        javacall_diag_log(line);
     }
 }
 
@@ -558,6 +565,27 @@ void __wrap_glReadPixels (GLint x, GLint y,
                      * that mapping. */
                     if (!s_probeDone && s_directOn) {
                         m3gPspProbeInvert(stride);
+                    }
+
+                    /*
+                     * Drop the row that was never in the surface.
+                     *
+                     * pspgl's flipped read starts at (surface height - y)
+                     * and walks down, so for a partial-height read the very
+                     * first line it copies comes from one row PAST the end
+                     * of the buffer -- in practice the depth buffer that
+                     * follows it. That line lands in row 0 here, which the
+                     * flip then puts along the bottom edge of the screen: a
+                     * coloured streak under the picture, at every
+                     * resolution. Its neighbour is the closest thing to
+                     * what should have been there.
+                     *
+                     * The single-transfer read does not need this; it is
+                     * aimed wholly inside the surface.
+                     */
+                    if (s_hintH > 1) {
+                        memcpy(s_frame, s_frame + stride,
+                               (size_t) s_hintW * 2);
                     }
                 }
                 s_frameValid = 1;

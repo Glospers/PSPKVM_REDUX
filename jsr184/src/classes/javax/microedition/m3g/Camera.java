@@ -14,6 +14,7 @@ public class Camera extends Node {
 
     private int projectionType = GENERIC;
     private float fovy = 60.0f, aspectRatio = 1.0f;
+
     private float near = 0.1f, far = 1000.0f;
     private Transform projection = new Transform();
 

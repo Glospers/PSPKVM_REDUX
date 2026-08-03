@@ -77,7 +77,11 @@ SUBSYSTEM_JSR_184_EXTRA_INCLUDES += \
 # TEMPORARY -- per-frame timing breakdown, one log line per 128 frames.
 # Says which stage of the frame the time is going into; remove once the
 # frame rate is where it needs to be.
-SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_FRAME_TIMING
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_FRAME_TIMING   (off for release)
+
+# TEMPORARY -- paints the seed magenta so the stray coloured regions can be
+# attributed to it or ruled out in a single frame. Remove after the answer.
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_SEED_PROBE   (answered: the stray regions ARE seed)
 
 # SubsystemDefs.gmk's JSR-184 block only forwards the file lists, so -- as in
 # jsr179/src/config/subsystem.gmk:189 -- the include path is added here.

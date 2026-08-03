@@ -430,6 +430,28 @@ static void m3gStageSeed(unsigned int *dst, const unsigned short *src, int count
 {
     int i;
 
+#if defined(M3G_PSP_SEED_PROBE)
+    /*
+     * TEMPORARY -- whose pixels are the stray coloured regions?
+     *
+     * They only appear once a scene is rendering, never in the app manager,
+     * and they behave like something that was already there rather than
+     * something drawn. Either they come through this seed -- the target's
+     * own 2D, which the engine composites the 3D over -- or from the render
+     * buffer where nothing has drawn.
+     *
+     * Painting the seed a colour the game cannot produce answers it in one
+     * frame: if the regions turn magenta they are seeded pixels, and the
+     * fault is in what this hands the engine or how the engine blits it. If
+     * they stay as they are, the seed is innocent and they belong to the
+     * render buffer.
+     */
+    (void) src;
+    for (i = 0; i < count; ++i) {
+        dst[i] = 0xFFFF00FFu;           /* opaque magenta, R=255 B=255 */
+    }
+    return;
+#else
     if (!s_seedTablesReady) {
         m3gBuildSeedTables();
     }
@@ -437,6 +459,7 @@ static void m3gStageSeed(unsigned int *dst, const unsigned short *src, int count
         unsigned int v = src[i];
         dst[i] = s_seedLo[v & 0xFF] | s_seedHi[v >> 8];
     }
+#endif
 }
 
 /* The engine's RGBA8 back into MIDP's PSP-order 565.
@@ -512,10 +535,21 @@ Java_javax_microedition_m3g_Graphics3D_nBind()
             dst.pixelData = (gxj_pixel_type *) pixels;
         }
 
-        /* The screen is the largest surface anything renders at. */
-        if (dst.width > screenWidth || dst.height > screenHeight) {
-            dst.width  = screenWidth;
-            dst.height = screenHeight;
+        /*
+         * A resolved target carries its own pixels and its own size -- a
+         * GameCanvas buffer is whatever the device profile says, which may
+         * be taller or narrower than the display it will be scaled onto.
+         * Only the fallback, which points at the display itself, is bounded
+         * by the screen.
+         *
+         * The bound used to be applied to both dimensions the moment either
+         * exceeded the screen, so a 240x320 canvas on a 480x272 display was
+         * re-declared 480x272: every read and write then ran off the end of
+         * a buffer half that size.
+         */
+        if (!resolved) {
+            if (dst.width  > screenWidth)  { dst.width  = screenWidth;  }
+            if (dst.height > screenHeight) { dst.height = screenHeight; }
         }
         width  = dst.width;
         height = dst.height;
@@ -612,9 +646,17 @@ Java_javax_microedition_m3g_Graphics3D_nRelease()
                 dst.width     = screenWidth;
                 dst.height    = screenHeight;
                 dst.pixelData = (gxj_pixel_type *) pixels;
+                if (dst.width  > screenWidth)  { dst.width  = screenWidth;  }
+                if (dst.height > screenHeight) { dst.height = screenHeight; }
             }
-            width  = (dst.width  > screenWidth)  ? screenWidth  : dst.width;
-            height = (dst.height > screenHeight) ? screenHeight : dst.height;
+            /* Bounded by what was actually rendered, not by the display:
+             * clamping a resolved target to the screen delivered only the
+             * top of a canvas taller than it, leaving the rows below with
+             * whatever they held before -- a band across the bottom that
+             * never updates. Must agree with nBind, or the delivery walks
+             * a different rectangle than the one that was drawn. */
+            width  = dst.width;
+            height = dst.height;
 
             /* The fast path: the cached frame is already in the screen's
              * own pixel layout, so it is copied straight in and the whole

@@ -1,0 +1,36 @@
+diff --git a/pspgl_context.c b/pspgl_context.c
+index d8f5233..4cc3285 100644
+--- a/pspgl_context.c
++++ b/pspgl_context.c
+@@ -183,6 +183,31 @@ adjusted_done: ;
+ 		return;
+ 	}
+ 
++	/*
++	   The 4x3 matrices lose their bottom row, and with it the perspective
++	   divide it would have produced: the GE simply assumes w == 1.  A
++	   matrix whose bottom row is [0 0 0 s] is projectively identical to
++	   the same matrix divided by s -- but only the divided form survives
++	   that truncation, so sending it as-is scales the whole world by s.
++
++	   Callers do produce them.  A JSR-184 title was observed handing the
++	   engine a camera transform of 1.875 * identity, w row included: exact
++	   as projective algebra, and a 1.875x world once the row is dropped.
++	   Normalising here costs one reciprocal on a matrix that is about to
++	   be written out as twelve floats anyway, and leaves an already-affine
++	   matrix (s == 1) untouched.
++	 */
++	GLfloat normalised[16];
++
++	if (skip == 3 && m[15] != 1.0f && m[15] != 0.0f &&
++	    m[3] == 0.0f && m[7] == 0.0f && m[11] == 0.0f) {
++		GLfloat inv = 1.0f / m[15];
++
++		for (int k = 0; k < 16; k++)
++			normalised[k] = m[k] * inv;
++		m = normalised;
++	}
++
+ 	int n = (skip == -1) ? 4 : 3;
+ 
+ 	__pspgl_context_writereg_uncached(c, opcode, index * n * 4);

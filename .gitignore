@@ -35,3 +35,7 @@ PARAM.SFO
 .DS_Store
 Thumbs.db
 *.swp
+
+# Release staging area and built archives are generated, not sources.
+/release/
+*.zip
