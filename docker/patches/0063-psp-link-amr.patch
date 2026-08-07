@@ -1,0 +1,22 @@
+diff --git a/psp/Makefile b/psp/Makefile
+index 3a067db..9fcb2fb 100644
+--- a/psp/Makefile
++++ b/psp/Makefile
+@@ -25,7 +25,7 @@ cg =
+ CFLAGS += -O3
+ endif
+ endif
+-LIBDIR = /usr/local/pspdev/psp/lib $(ROOT)/midp/build/javacall_psp/output/bin/mips $(ROOT)/cldc/build/javacall_psp_gcc/target/bin $(ROOT)/pcsl/output/javacall_mips/lib $(ROOT)/javacall/configuration/phoneMEFeature/psp_mips/output/lib $(ROOT)/m3g/lib
++LIBDIR = /usr/local/pspdev/psp/lib $(ROOT)/midp/build/javacall_psp/output/bin/mips $(ROOT)/cldc/build/javacall_psp_gcc/target/bin $(ROOT)/pcsl/output/javacall_mips/lib $(ROOT)/javacall/configuration/phoneMEFeature/psp_mips/output/lib $(ROOT)/m3g/lib $(ROOT)/amr/lib
+ #LDFLAGS =  -L$(ROOT)/midp/build/javacall_psp/output/bin/mips -L$(ROOT)/cldc/build/javacall_psp_gcc/target/bin -L$(ROOT)/pcsl/output/javacall_mips/lib -L$(ROOT)/javacall/configuration/phoneMEFeature/psp_mips/output/lib
+ LIBS := -lpspaudiocodec -lpspmpeg -lSDL -lSDL_mixer -lpspirkeyb -lvorbis -lvorbisfile -logg -lfreetype -lpng -lz -lbz2 -lm -lpsphprm -lpspaudiolib -lpspaudio -lpspwlan -lpspgu -lGL -lpspvfpu -lpspusb -lpsprtc -Wl,--end-group
+ # The M3G port corrects pspgl entry points rather than replacing them; the
+@@ -45,7 +45,7 @@ LDFLAGS += -Wl,--wrap,open_file -Wl,--wrap,glVertexPointer -Wl,--wrap,glCompress
+ LDFLAGS += -Wl,--wrap,SDL_Init -Wl,--wrap,SDL_Quit -Wl,--wrap,SDL_GetError -Wl,--wrap,SDL_RWFromMem -Wl,--wrap,SDL_RWFromFile
+ LDFLAGS += -Wl,--wrap,Mix_AllocateChannels -Wl,--wrap,Mix_ChannelFinished -Wl,--wrap,Mix_CloseAudio -Wl,--wrap,Mix_FreeChunk -Wl,--wrap,Mix_FreeMusic -Wl,--wrap,Mix_HaltChannel -Wl,--wrap,Mix_HookMusicFinished -Wl,--wrap,Mix_LoadMUS -Wl,--wrap,Mix_LoadMUS_RW -Wl,--wrap,Mix_LoadWAV_RW -Wl,--wrap,Mix_OpenAudio -Wl,--wrap,Mix_Pause -Wl,--wrap,Mix_PauseMusic -Wl,--wrap,Mix_PlayChannelTimed -Wl,--wrap,Mix_PlayMusic -Wl,--wrap,Mix_ResumeMusic -Wl,--wrap,Mix_QuerySpec
+ LDFLAGS += -Wl,--wrap,glTexCoordPointer
+-LIBS := -Wl,--start-group -Wl,--whole-archive -lm3g -Wl,--no-whole-archive -lmidp$(g) -lcldc_vm$(cg) -lstdc++ -lpcsl_file -lpcsl_print -lpcsl_memory -lpcsl_string -lpcsl_network -ljavacall$(g) $(LIBS)
++LIBS := -Wl,--start-group -Wl,--whole-archive -lm3g -Wl,--no-whole-archive -lamr -lmidp$(g) -lcldc_vm$(cg) -lstdc++ -lpcsl_file -lpcsl_print -lpcsl_memory -lpcsl_string -lpcsl_network -ljavacall$(g) $(LIBS)
+ 
+ EXTRA_TARGETS = EBOOT.PBP 
+ ifeq ($(BUILD_SLIM), true)

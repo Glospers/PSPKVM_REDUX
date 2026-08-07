@@ -25,3 +25,7 @@ m3g/**/*.h  eol=lf
 # container's build then has to tolerate for no reason.
 jsr184/**/*.c  eol=lf
 jsr184/**/*.h  eol=lf
+
+# The vendored FFmpeg decoder and its shim build in the container too.
+amr/**/*.c  eol=lf
+amr/**/*.h  eol=lf

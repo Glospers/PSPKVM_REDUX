@@ -1,0 +1,78 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index 135d9cb..ceb3eb1 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -380,6 +380,12 @@ javacall_result javacall_media_initialize(void) {
+     }
+ 
+     music_handle_occupied = 0;
++    /* Start both mixers at full scale. A MIDlet that never touches
++       VolumeControl -- which is most of them -- gets audible sound, and one
++       that does will overwrite these through javacall_media_set_volume. */
++    Mix_VolumeMusic(MIX_MAX_VOLUME);
++    Mix_Volume(-1, MIX_MAX_VOLUME);
++
+     Mix_HookMusicFinished(musicFinished);
+ 
+     Mix_AllocateChannels(CHANNEL_NUM);
+@@ -900,6 +906,16 @@ long javacall_media_get_duration(javacall_handle handle) {
+  * @return          Volume value
+  */
+ long javacall_media_get_volume(javacall_handle handle) {
++    mmplayer_handle* mp = (mmplayer_handle*)handle;
++
++    if (mp != NULL && mp->type == MEDIA_TYPE_MIDI) {
++        return (Mix_VolumeMusic(-1) * 100 + MIX_MAX_VOLUME / 2) / MIX_MAX_VOLUME;
++    }
++    if (mp != NULL && mp->type == MEDIA_TYPE_WAVE) {
++        wav_player_handle* wp = (wav_player_handle*)mp;
++        int v = (wp->chunk != NULL) ? Mix_VolumeChunk(wp->chunk, -1) : MIX_MAX_VOLUME;
++        return (v * 100 + MIX_MAX_VOLUME / 2) / MIX_MAX_VOLUME;
++    }
+     return 100;
+ }
+ 
+@@ -913,7 +929,42 @@ long javacall_media_get_volume(javacall_handle handle) {
+  * @return          if success return volume level else return -1
+  */
+ long javacall_media_set_volume(javacall_handle handle, long level) {
+-    return -1;
++    mmplayer_handle* mp = (mmplayer_handle*)handle;
++    int mix;
++
++    /* MMAPI works in 0..100, SDL_mixer in 0..MIX_MAX_VOLUME. Returning -1
++       unconditionally, as this did before, told the Java layer that every
++       volume change had failed -- so VolumeControl.setLevel() could neither
++       raise the volume nor report the level it had asked for. */
++    if (level < 0)   level = 0;
++    if (level > 100) level = 100;
++    mix = (int) ((level * MIX_MAX_VOLUME + 50) / 100);
++
++    if (mp == NULL) {
++        return -1;
++    }
++
++    if (mp->type == MEDIA_TYPE_MIDI) {
++        Mix_VolumeMusic(mix);
++        return level;
++    }
++    if (mp->type == MEDIA_TYPE_WAVE) {
++        wav_player_handle* wp = (wav_player_handle*)mp;
++        /* Set it on the chunk rather than the channel: a chunk carries its
++           own volume into whichever channel it is later played on, so a
++           level set before playback starts is not lost. The channel is set
++           too when one is already assigned, so a change mid-play takes
++           effect immediately. */
++        if (wp->chunk != NULL) {
++            Mix_VolumeChunk(wp->chunk, mix);
++        }
++        if (wp->channel >= 0) {
++            Mix_Volume(wp->channel, mix);
++        }
++        return level;
++    }
++
++    return level;
+ }
+ 
+ /**

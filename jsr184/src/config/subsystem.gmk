@@ -79,6 +79,18 @@ SUBSYSTEM_JSR_184_EXTRA_INCLUDES += \
 # frame rate is where it needs to be.
 # SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_FRAME_TIMING   (off for release)
 
+# TEMPORARY -- per-thread CPU census, one block per 128 frames.
+#
+# The frame timing above can only see the thread it runs on, so everything
+# else -- above all SDL's audio thread, where Timidity synthesises MIDI in
+# software -- lands in its unattributed residue.  This reads the kernel's own
+# per-thread runClocks instead, which attributes the whole machine.
+#
+# Needs the PSP SDK headers on the include path for SceKernelThreadInfo;
+# nothing else in this subsystem does, so the -I comes with the switch.
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_THREAD_CENSUS   (off for release)
+# SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -I$(GNU_TOOLS_DIR)/sdk/include  (census only)
+
 # TEMPORARY -- paints the seed magenta so the stray coloured regions can be
 # attributed to it or ruled out in a single frame. Remove after the answer.
 # SUBSYSTEM_JSR_184_EXTRA_INCLUDES += -DM3G_PSP_SEED_PROBE   (answered: the stray regions ARE seed)

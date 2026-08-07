@@ -1,0 +1,114 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index bbc5f93..6379738 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -433,6 +433,39 @@ javacall_result javacall_media_finalize(void) {
+  * 
+  * @return              Handle of native library. if fail return NULL.
+  */
++/*
++ * MIME matching that survives what MIDlets actually pass.
++ *
++ * The routing below used to be strcmp against a fixed list, which misses on
++ * three things seen in real suites: type names are case-insensitive by
++ * RFC 2045 but were compared case-sensitively, a type may carry parameters
++ * ("audio/midi; rate=..."), and leading space is common. Our own AMR routing
++ * already had to special-case "audio/AMR" for exactly this reason.
++ */
++static int mime_is(const char *mime, const char *want)
++{
++    int i, j;
++
++    if (mime == NULL || want == NULL) {
++        return 0;
++    }
++    while (*mime == 32 || *mime == 9) {
++        mime++;
++    }
++
++    for (i = 0, j = 0; want[j] != 0; i++, j++) {
++        int a = mime[i];
++        int b = want[j];
++        if (a >= 65 && a <= 90) a += 32;     /* ASCII upper to lower */
++        if (b >= 65 && b <= 90) b += 32;
++        if (a != b) {
++            return 0;
++        }
++    }
++    /* Matched the whole type: it must end here, or a parameter follows. */
++    return mime[i] == 0 || mime[i] == 59 || mime[i] == 32 || mime[i] == 9;
++}
++
+ javacall_handle javacall_media_create(javacall_int64 playerId, 
+                                       const javacall_utf16* mime, 
+                                       long mimeLength,
+@@ -467,27 +500,48 @@ javacall_handle javacall_media_create(javacall_int64 playerId,
+         }
+     }
+ 
+-    if (!strcmp(pszMime, JAVACALL_AUDIO_MIDI_MIME) ||
+-    	  !strcmp(pszMime, JAVACALL_AUDIO_MIDI_MIME_2)) {
+-    	 return create_midi(playerId, uri, uriLength, contentLength);
+-    } else if (!strcmp(pszMime, JAVACALL_AUDIO_WAV_MIME) ||
+-         !strcmp(pszMime, JAVACALL_AUDIO_WAV_MIME_2)) {
+-        return create_wav(playerId, uri, uriLength, contentLength);
+-    } else if (!strcmp(pszMime, JAVACALL_AUDIO_MP3_MIME) ||
+-         !strcmp(pszMime, JAVACALL_AUDIO_MP3_MIME_2)) {
+-         return create_mp3(playerId, uri, uriLength, contentLength);
+-    } else if (!strcmp(pszMime, JAVACALL_AUDIO_AMR_MIME) ||
+-         !strcmp(pszMime, "audio/AMR")) {
+-        /* No AMR codec exists anywhere in this stack; titles that ship
+-           .amr effects (Deep 3D: alert, harpoon, explosion...) played
+-           nothing.  The suite's .amr resources are transcoded to RIFF WAV
+-           in place on the memory stick -- same names, same mime, WAVE
+-           bytes -- so the mime routes to the WAV player, which reads the
+-           bytes for what they are. */
+-        return create_wav(playerId, uri, uriLength, contentLength);
+-    }
+-
+-    return NULL;
++    /* MIDI, including the Scalable Polyphony profile. SP-MIDI is ordinary
++       MIDI with a scalability header that Timidity ignores, and it is common
++       in J2ME suites -- it was simply never routed, so every game using it
++       was silent with nothing logged. */
++    if (mime_is(pszMime, JAVACALL_AUDIO_MIDI_MIME)   ||
++        mime_is(pszMime, JAVACALL_AUDIO_MIDI_MIME_2) ||
++        mime_is(pszMime, JAVACALL_AUDIO_SP_MIDI_MIME) ||
++        mime_is(pszMime, "audio/x-midi") ||
++        mime_is(pszMime, "audio/x-mid")) {
++        return create_midi(playerId, uri, uriLength, contentLength);
++    }
++
++    if (mime_is(pszMime, JAVACALL_AUDIO_MP3_MIME)   ||
++        mime_is(pszMime, JAVACALL_AUDIO_MP3_MIME_2) ||
++        mime_is(pszMime, "audio/x-mp3") ||
++        mime_is(pszMime, "audio/mpeg3")) {
++        return create_mp3(playerId, uri, uriLength, contentLength);
++    }
++
++    /* WAVE, AMR, and anything not recognised above.
++       Returning NULL here is what a MIDlet experiences as "no sound at all",
++       and the old code did that for every type outside a list of six. The
++       sampled-audio player is the better default: it inspects the bytes when
++       they arrive rather than trusting the declared type, so it plays WAVE,
++       decodes AMR, and fails per-clip instead of refusing up front. Anything
++       that lands here unrecognised is logged with its type, so the next
++       unknown format is a one-line diagnosis rather than an investigation. */
++    if (!mime_is(pszMime, JAVACALL_AUDIO_WAV_MIME)   &&
++        !mime_is(pszMime, JAVACALL_AUDIO_WAV_MIME_2) &&
++        !mime_is(pszMime, JAVACALL_AUDIO_AMR_MIME)) {
++        extern void javacall_diag_log(const char *s) __attribute__((weak));
++        static int logged_unknown;
++        if (logged_unknown < 20 && javacall_diag_log != 0) {
++            char line[128];
++            logged_unknown++;
++            sprintf(line, "media: unrouted mime=%.60s len=%ld -> wav player\n",
++                    (pszMime != NULL) ? pszMime : "(null)", contentLength);
++            javacall_diag_log(line);
++        }
++    }
++
++    return create_wav(playerId, uri, uriLength, contentLength);
+ }
+ 
+ /**

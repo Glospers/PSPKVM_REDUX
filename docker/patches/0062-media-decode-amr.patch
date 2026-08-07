@@ -1,0 +1,88 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index 1c28214..bbc5f93 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -110,6 +110,15 @@ static long setmediatime_mp3(mp3_player_handle* mp, long ms);
+ static long getmediatime_mp3(mp3_player_handle* mp);
+ static long getduration_mp3(mp3_player_handle* mp);
+ 
++/*
++ * AMR-NB decoding (amr/src/amr_to_wave.c, linked as libamr.a).
++ *
++ * Declared here rather than by including amr_to_wave.h so javacall's include
++ * path stays untouched; these two entry points are the whole interface.
++ */
++extern int   amr_is_amr(const void *data, size_t length);
++extern void *amr_to_wave(const void *data, size_t length, size_t *out_size);
++
+ /** MIDI music finish callback **/
+ static void musicFinished() {
+     javacall_printf("musicFinished.\n");
+@@ -2047,8 +2056,26 @@ static long buffer_wav(wav_player_handle* mp, const void* buffer, long length, l
+     	//end of buffering
+     	javacall_print("endof buffering\n");
+     	if (mp->buffer) {
+-    		SDL_RWops * rw = SDL_RWFromMem(mp->buffer, mp->buffered_len);
+-    		chunk = Mix_LoadWAV_RW(rw, 1);
++    		/* A MIDlet's .amr effects arrive here exactly as they sit in the
++    		   JAR. SDL_mixer cannot read AMR, so decode to WAVE first and hand
++    		   it the result; anything that is not AMR goes through untouched.
++    		   Mix_LoadWAV_RW copies what it needs into the chunk, so the
++    		   decoded image is ours to release straight away. */
++    		SDL_RWops * rw;
++    		void *wave = NULL;
++    		size_t wave_len = 0;
++
++    		if (amr_is_amr(mp->buffer, mp->buffered_len)) {
++    			wave = amr_to_wave(mp->buffer, mp->buffered_len, &wave_len);
++    		}
++    		if (wave) {
++    			rw = SDL_RWFromMem(wave, (int) wave_len);
++    			chunk = Mix_LoadWAV_RW(rw, 1);
++    			free(wave);
++    		} else {
++    			rw = SDL_RWFromMem(mp->buffer, mp->buffered_len);
++    			chunk = Mix_LoadWAV_RW(rw, 1);
++    		}
+     	} else if (mp->fp) {
+     		
+     		javacall_print("close tmp buffer file\n");
+@@ -2056,7 +2083,37 @@ static long buffer_wav(wav_player_handle* mp, const void* buffer, long length, l
+     		mp->fp = NULL;
+     		strcpy(mp->filename, javacall_UNICODEsToUtf8(mp->tmpfilename, mp->tmpfilenamelen));
+     		    		
+-    		chunk=Mix_LoadWAV(mp->filename);
++    		/* Same conversion for the spilled-to-disk path: a clip large
++    		   enough to be buffered through a file is no less likely to be
++    		   AMR, and Mix_LoadWAV would simply fail on it. */
++    		chunk = NULL;
++    		{
++    			FILE *af = fopen(mp->filename, "rb");
++    			if (af) {
++    				long alen;
++    				fseek(af, 0, SEEK_END);
++    				alen = ftell(af);
++    				fseek(af, 0, SEEK_SET);
++    				if (alen > 0) {
++    					void *raw = malloc((size_t) alen);
++    					if (raw && fread(raw, 1, (size_t) alen, af) == (size_t) alen
++    					    && amr_is_amr(raw, (size_t) alen)) {
++    						size_t wave_len = 0;
++    						void *wave = amr_to_wave(raw, (size_t) alen, &wave_len);
++    						if (wave) {
++    							SDL_RWops *rw = SDL_RWFromMem(wave, (int) wave_len);
++    							chunk = Mix_LoadWAV_RW(rw, 1);
++    							free(wave);
++    						}
++    					}
++    					if (raw) free(raw);
++    				}
++    				fclose(af);
++    			}
++    		}
++    		if (!chunk) {
++    			chunk = Mix_LoadWAV(mp->filename);
++    		}
+     	}
+     	
+    	{

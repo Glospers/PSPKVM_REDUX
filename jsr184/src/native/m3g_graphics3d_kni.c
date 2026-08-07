@@ -214,6 +214,138 @@ static void m3gFrameReport(void)
 }
 #endif /* M3G_PSP_FRAME_TIMING */
 
+#if defined(M3G_PSP_THREAD_CENSUS)
+/*
+ * THREAD CPU CENSUS -- which threads are actually spending the CPU.
+ *
+ * Enabled from jsr184/src/config/subsystem.gmk.  The frame timing above
+ * attributes time to stages of *this* layer and calls whatever is left "the
+ * VM", but that residue also contains every other thread on the machine --
+ * most importantly SDL's audio thread, which is where Timidity synthesises
+ * MIDI in software at the mixer's output rate.  A stage timer cannot see that,
+ * because the cost is not on the thread doing the frame.
+ *
+ * The kernel already tracks it: SceKernelThreadInfo.runClocks is accumulated
+ * per-thread CPU microseconds.  Sampling every thread once every 128 frames
+ * and reporting the deltas gives the whole CPU budget, audio included, at a
+ * cost of one pass over ~20 threads per two seconds of play.
+ *
+ * Read the output as: each thread's us/frame, and its share of the wall clock
+ * the same 128 frames took.  Shares sum to roughly 100% on a busy machine;
+ * anything materially short of that is idle time.
+ */
+#include <pspthreadman.h>
+
+/* Declared locally so the census can be enabled without the frame timer,
+ * which declares the same symbol for its own use. */
+extern unsigned int sceKernelGetSystemTimeLow(void);
+
+/* The clock the machine is really running at.  PSPKVM asks for a speed per
+ * MIDlet (pspkvm.ini's defaultspeed, overridden by the per-game device
+ * setting), but nothing reports what actually took effect -- and a PSP held
+ * at 222 MHz instead of 333 is a third of the CPU missing, which would move
+ * the frame rate on its own.  CFW can clamp this independently of what the
+ * application requested, so the requested value is not evidence. */
+extern int scePowerGetCpuClockFrequency(void);
+extern int scePowerGetBusClockFrequency(void);
+extern int scePowerGetBatteryLifePercent(void);
+
+#define M3G_CENSUS_MAX 40
+
+static SceUID       s_cenId[M3G_CENSUS_MAX];
+static unsigned int s_cenPrev[M3G_CENSUS_MAX];
+static int          s_cenCount;
+static unsigned int s_cenLastWall;
+
+/* runClocks is a 64-bit SceKernelSysClock; at PSP rates the low word wraps
+ * about every 71 minutes, and unsigned subtraction handles that wrap on its
+ * own, so only the low word is kept. */
+static unsigned int m3gCensusSlot(SceUID id)
+{
+    int i;
+
+    for (i = 0; i < s_cenCount; ++i) {
+        if (s_cenId[i] == id) {
+            return (unsigned int) i;
+        }
+    }
+    if (s_cenCount >= M3G_CENSUS_MAX) {
+        return (unsigned int) -1;
+    }
+    s_cenId[s_cenCount]   = id;
+    s_cenPrev[s_cenCount] = 0;
+    return (unsigned int) s_cenCount++;
+}
+
+#define M3G_CENSUS_PERIOD 128
+static int s_cenFrames;
+
+static void m3gThreadCensus(void)
+{
+    SceUID   ids[M3G_CENSUS_MAX];
+    int      count = 0;
+    unsigned int wall, elapsed;
+    const unsigned int frames = M3G_CENSUS_PERIOD;
+    char     line[160];
+    int      i;
+
+    if (++s_cenFrames < M3G_CENSUS_PERIOD || javacall_diag_log == 0) {
+        return;
+    }
+    s_cenFrames = 0;
+
+    wall          = sceKernelGetSystemTimeLow();
+    elapsed       = wall - s_cenLastWall;
+    s_cenLastWall = wall;
+    if (elapsed == 0) {
+        return;
+    }
+
+    if (sceKernelGetThreadmanIdList(SCE_KERNEL_TMID_Thread, ids,
+                                    M3G_CENSUS_MAX, &count) < 0) {
+        javacall_diag_log("M3G: census unavailable\n");
+        return;
+    }
+
+    sprintf(line, "M3G: census over %u frames / %u us wall"
+            "  cpu=%dMHz bus=%dMHz batt=%d%%\n",
+            frames, elapsed, scePowerGetCpuClockFrequency(),
+            scePowerGetBusClockFrequency(), scePowerGetBatteryLifePercent());
+    javacall_diag_log(line);
+
+    for (i = 0; i < count && i < M3G_CENSUS_MAX; ++i) {
+        SceKernelThreadInfo info;
+        unsigned int slot, now, used;
+
+        memset(&info, 0, sizeof(info));
+        info.size = sizeof(info);
+        if (sceKernelReferThreadStatus(ids[i], &info) < 0) {
+            continue;
+        }
+
+        slot = m3gCensusSlot(ids[i]);
+        if (slot == (unsigned int) -1) {
+            continue;
+        }
+
+        now  = (unsigned int) info.runClocks.low;
+        used = now - s_cenPrev[slot];
+        s_cenPrev[slot] = now;
+
+        /* A thread that did nothing measurable is noise; skip it so the log
+         * stays one screen and the expensive threads stand out. */
+        if (used < elapsed / 200u) {
+            continue;
+        }
+
+        info.name[31] = '\0';
+        sprintf(line, "M3G:   %-16s %6u us/frame  %3u%%\n",
+                info.name, used / frames, (unsigned int) ((used * 100ULL) / elapsed));
+        javacall_diag_log(line);
+    }
+}
+#endif /* M3G_PSP_THREAD_CENSUS */
+
 #if defined(M3G_TRACE)
 
 #define M3G_TRACE_BUDGET 200
@@ -677,6 +809,9 @@ Java_javax_microedition_m3g_Graphics3D_nRelease()
 #if defined(M3G_PSP_FRAME_TIMING)
     s_tDeliver += sceKernelGetSystemTimeLow() - tRead;
     m3gFrameReport();
+#endif
+#if defined(M3G_PSP_THREAD_CENSUS)
+    m3gThreadCensus();
 #endif
 
     m3gTrace("release", result, 0);

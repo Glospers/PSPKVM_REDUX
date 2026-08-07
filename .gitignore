@@ -22,6 +22,12 @@ PARAM.SFO
 /m3g/test/obj/
 /m3g/test/m3g_load_test
 /m3g/test/m3g_render_test
+/amr/obj/
+/amr/lib/
+/amr/test/amr_decode_test
+# Third-party AMR samples used to check the decoder against ffmpeg; fetched,
+# not ours to redistribute. See amr/test/amr_decode_test.c for where to get one.
+/amr/test/data/
 
 # --- OS / editor -------------------------------------------------------------
 .DS_Store

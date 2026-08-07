@@ -141,20 +141,51 @@ if [ -z "${M3GCORE_DIR:-}" ]; then
   exit 2
 fi
 
-echo ">> [1/3] building libm3g.a (m3gcore = $M3GCORE_DIR)"
+echo ">> [1/4] building libm3g.a (m3gcore = $M3GCORE_DIR)"
 make -C "$M3G_DIR" M3GCORE_DIR="$M3GCORE_DIR"
 
-# --- 2) phoneME libraries ----------------------------------------------------
-echo ">> [2/3] building phoneME libraries (javacall/pcsl/cldc/midp)"
+# --- 2) libamr.a (AMR-NB decoding) ------------------------------------------
+# AMR-NB is a speech codec the PSP has no hardware decoder for -- sceAudiocodec
+# offers ATRAC3, MP3 and AAC and nothing else -- so a MIDlet's .amr effects
+# played nothing at all. The decoder is FFmpeg's, vendored under LGPL-2.1 and
+# left byte-for-byte upstream; only the framework it expects is supplied
+# locally. Without it a downloaded JAR has to have its audio transcoded before
+# it will make a sound, which is not something a user should have to do.
+AMR_DIR="$SRC/amr"
+if [ ! -d "$AMR_DIR/src" ]; then
+  for cand in /work/amr /amr; do
+    if [ -d "$cand/src" ]; then
+      echo ">> adding component: amr (from $cand)"
+      rm -rf "${AMR_DIR:?}"
+      cp -R "$cand" "$AMR_DIR"
+      break
+    fi
+  done
+fi
+
+if [ ! -d "$AMR_DIR/src" ]; then
+  echo "ERROR: the amr component is missing. Mount this repository's amr/ at" >&2
+  echo "       /work/components/amr (or /amr)." >&2
+  exit 2
+fi
+
+echo ">> [2/4] building libamr.a"
+make -C "$AMR_DIR"
+
+# --- 3) phoneME libraries ----------------------------------------------------
+echo ">> [3/4] building phoneME libraries (javacall/pcsl/cldc/midp)"
 ./build-psp-cldc.sh -J "$JDK_DIR"
 
-# --- 3) link + package EBOOT.PBP --------------------------------------------
+# --- 4) link + package EBOOT.PBP --------------------------------------------
 # psp/Makefile picks libm3g.a up from $(ROOT)/m3g/lib and pulls it in with
 # --whole-archive (see docker/patches/0042-psp-link-m3g.patch). The Loader
 # natives reach only a handful of entry points, so without --whole-archive the
 # linker would drop the rest of the engine -- everything the later rendering
 # work needs -- as unreferenced.
-echo ">> [3/3] linking + packaging EBOOT.PBP (BUILD_SLIM=true)"
+#
+# libamr.a comes from $(ROOT)/amr/lib and needs no such treatment: the media
+# layer calls into it by name, so ordinary archive resolution finds it.
+echo ">> [4/4] linking + packaging EBOOT.PBP (BUILD_SLIM=true)"
 cd psp
 make BUILD_SLIM=true
 

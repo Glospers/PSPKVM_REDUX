@@ -17,9 +17,35 @@ Deep 3D: Submarine Odyssey plays from the menu through to gameplay — the
 station, the sub, the HUD, music, sound effects, saving and loading. Tested on
 **PPSSPP** and on a **real PSP-2000 running ARK-4 CFW**, which behave the same.
 
-That's the honest scope of testing: **one game, one console model.** Other M3G
+New York Nights 2 (a 2D title) plays with music and effects, which is the other
+half of what this release fixes — see below.
+
+That's the honest scope of testing: **two games, one console model.** Other M3G
 titles may work, partly work, or not start. If you try one, I'd like to hear
 either way.
+
+## Sound
+
+Audio was substantially broken before this release, in ways that had nothing to
+do with any individual game:
+
+- **Volume control was never implemented.** Nothing in the runtime ever set the
+  mixer's music volume, which starts at zero, so *every* MIDI soundtrack played
+  correctly and inaudibly. Sound effects were unaffected, which is why the
+  problem hid for so long — effects play on channels, whose volume defaults to
+  maximum.
+- **Seeking failed on music.** Titles routinely rewind a track before playing
+  it — stop, `setMediaTime(0)`, start. That call returned failure for MIDI, so
+  the game got a `MediaException`, gave up, and never started the song it had
+  just loaded successfully.
+- **Whole audio types were unroutable.** SP-MIDI, which is common in J2ME
+  games, was never wired up; content types were compared case-sensitively
+  despite being case-insensitive by spec, and any unrecognised type produced
+  silence with nothing logged. Unknown types now fall back to the sampled-audio
+  player and are reported in the log.
+- **AMR-NB is now decoded in the runtime.** The PSP has no AMR hardware, so
+  these effects used to need transcoding before a JAR would make a sound. The
+  decoder is FFmpeg's, under LGPL-2.1.
 
 ## Known limitations
 
@@ -33,12 +59,23 @@ Java bytecode interpreter, and this VM has no JIT for MIPS (the compiler backend
 in the phoneME source is empty stubs), so desktop emulators with a JIT will
 always be smoother. Work continues, but 30 fps is unlikely.
 
-**AMR sound effects need converting.** AMR-NB is a speech codec the PSP has no
-decoder for — `sceAudiocodec` does ATRAC3, MP3 and AAC and nothing else. Games
-that use `.amr` for effects will be silent until the JAR's audio is converted to
-WAVE with [`tools/amr-to-wav.sh`](tools/amr-to-wav.sh). Music (MIDI) plays
-natively and needs nothing. Teaching the runtime to decode AMR itself is still
-open.
+**Music sounds thinner than it should.** The runtime ships upstream's small
+Timidity patch set (`inst/`), where many instruments fall back to the same few
+samples. Dropping a full General MIDI patch set into `PSP/GAME/PSPKVM/gm/` and
+pointing `timidity.cfg` at it is a large improvement, and is what the
+development machine runs. It isn't bundled because it is tens of megabytes and
+not this project's to redistribute.
+
+**One MIDI at a time.** The mixer has a single music channel, so a MIDI sound
+effect and MIDI background music cannot play together — starting one replaces
+the other. Sampled effects (WAVE, AMR) mix with music normally; it is only
+MIDI-on-MIDI that collides. Games that use MIDI for menu blips over MIDI music
+will drop the music while the blip plays.
+
+**AMR decoding is new and lightly tested.** The decoder is FFmpeg's, and its
+output is verified sample-for-sample identical to ffmpeg's own on the desktop —
+but no game with unconverted AMR audio has been run on hardware yet. If an
+`.amr`-using title is silent, the log will say so.
 
 **Widescreen is a bad idea for Deep 3D.** At 480x272 the game asks for a much
 wider view than its sky geometry covers, so you see past the edge of the sky and
@@ -99,7 +136,10 @@ docker/           Reproducible build environment
 jsr184/           javax.microedition.m3g classes and their native methods
 m3g/              The port: public header, PSP platform layer, and the
                   corrections applied to the GL and EGL calls the engine makes
-tools/            amr-to-wav.sh — converts a MIDlet's AMR effects to WAVE
+amr/              AMR-NB decoder: FFmpeg's, vendored unmodified, plus the
+                  small shim that lets it build without a full FFmpeg tree
+tools/            amr-to-wav.sh — transcodes a MIDlet's AMR effects to WAVE.
+                  Superseded by the built-in decoder; kept as a fallback
 docs/             Design notes and the original build/engine investigation
 upstream/         Pinned source clones, fetched not vendored (not in git)
 ```

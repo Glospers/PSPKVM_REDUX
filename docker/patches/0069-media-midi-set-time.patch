@@ -1,0 +1,45 @@
+diff --git a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+index 9ae323a..1012e66 100644
+--- a/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
++++ b/javacall/implementation/psp_mips/jsr135_mmapi/multimedia.c
+@@ -896,6 +896,40 @@ long javacall_media_set_time(javacall_handle handle, long ms) {
+         return -1;
+     }
+ 
++    if (((mmplayer_handle*)handle)->type == MEDIA_TYPE_MIDI) {
++        /* The same rewind idiom the WAVE branch above already handles, and
++           for the same reason -- it was simply never extended to music.
++           New York Nights 2 does setMediaTime(0) on every track before
++           starting it; the blanket -1 below made that throw a
++           MediaException, so the title loaded each song correctly and then
++           abandoned it without ever calling start(). Nothing was wrong with
++           the file, the volume or the synthesiser: the player was told the
++           seek had failed.
++
++           Seeking to the top of a track that has not started yet is already
++           true, so it only has to be accepted. One that is playing is
++           rewound, which is what the idiom is asking for. */
++        midi_player_handle* mp = (midi_player_handle*) handle;
++
++        if (ms == 0) {
++            if (mp->music != NULL && Mix_PlayingMusic()) {
++                Mix_RewindMusic();
++            }
++            return 0;
++        }
++
++        /* SDL_mixer can only seek MIDI forwards from the start, and only
++           while the track is the one playing. Report the position actually
++           reached rather than claiming success blindly. */
++        if (mp->music != NULL && Mix_PlayingMusic()) {
++            Mix_RewindMusic();
++            if (Mix_SetMusicPosition((double) ms / 1000.0) == 0) {
++                return ms;
++            }
++        }
++        return -1;
++    }
++
+     return -1;
+ }
+  
