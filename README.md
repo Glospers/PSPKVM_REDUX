@@ -59,12 +59,14 @@ Java bytecode interpreter, and this VM has no JIT for MIPS (the compiler backend
 in the phoneME source is empty stubs), so desktop emulators with a JIT will
 always be smoother. Work continues, but 30 fps is unlikely.
 
-**Music sounds thinner than it should.** The runtime ships upstream's small
-Timidity patch set (`inst/`), where many instruments fall back to the same few
-samples. Dropping a full General MIDI patch set into `PSP/GAME/PSPKVM/gm/` and
-pointing `timidity.cfg` at it is a large improvement, and is what the
-development machine runs. It isn't bundled because it is tens of megabytes and
-not this project's to redistribute.
+**Music sounds thin.** Upstream's Timidity configuration referenced 41 patch
+files it never shipped, which left music silent on a stock install; the
+configuration here maps every program onto the 16 patches that are actually
+bundled, so a fresh install makes sound. It is a poor General MIDI set by
+design. For music that sounds right, drop a full patch set into
+`PSP/GAME/PSPKVM/gm/` and point `timidity.cfg` at it — see
+[runtime/README.md](runtime/README.md). That set is tens of megabytes and not
+this project's to redistribute, which is why it isn't bundled.
 
 **One MIDI at a time.** The mixer has a single music channel, so a MIDI sound
 effect and MIDI background music cannot play together — starting one replaces
