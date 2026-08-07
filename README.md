@@ -96,7 +96,7 @@ pick a Nokia profile or its menu keys do nothing.
 
 Assumes a PSP already running custom firmware (PRO, ME, ARK-4 — any modern CFW).
 
-1. Download `PSPKVM-REDUX-3D-alpha.zip` from
+1. Download the latest `PSPKVM-REDUX-3D-*.zip` from
    [Releases](https://github.com/Glospers/PSPKVM_REDUX/releases).
 2. Unzip it. You'll get a `PSP` folder.
 3. Plug the PSP in over USB, or put its memory stick in a card reader.
@@ -142,6 +142,7 @@ amr/              AMR-NB decoder: FFmpeg's, vendored unmodified, plus the
                   small shim that lets it build without a full FFmpeg tree
 tools/            amr-to-wav.sh — transcodes a MIDlet's AMR effects to WAVE.
                   Superseded by the built-in decoder; kept as a fallback
+runtime/          Files that replace a broken one in the install package
 docs/             Design notes and the original build/engine investigation
 upstream/         Pinned source clones, fetched not vendored (not in git)
 ```
